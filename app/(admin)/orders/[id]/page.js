@@ -1,0 +1,189 @@
+'use client';
+import { useEffect, useState } from 'react';
+import { use } from 'react';
+import { getOrder, updateOrderStatus, ORDER_STATUS, STATUS_LABELS, formatTimestamp } from '@/lib/firestore';
+import StatusBadge from '@/components/StatusBadge';
+import Link from 'next/link';
+import toast from 'react-hot-toast';
+import { ArrowLeft, Phone, MapPin, Clock, Package, CreditCard, MessageSquare } from 'lucide-react';
+import { Toaster } from 'react-hot-toast';
+
+const STATUS_FLOW = [
+  ORDER_STATUS.RECEIVED,
+  ORDER_STATUS.CONFIRMED,
+  ORDER_STATUS.PREPARING,
+  ORDER_STATUS.OUT_FOR_DELIVERY,
+  ORDER_STATUS.DELIVERED,
+];
+
+export default function OrderDetailPage({ params }) {
+  const { id } = use(params);
+  const [order, setOrder] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [updating, setUpdating] = useState(false);
+
+  useEffect(() => {
+    getOrder(id).then(data => {
+      setOrder(data);
+      setLoading(false);
+    });
+  }, [id]);
+
+  async function changeStatus(newStatus) {
+    setUpdating(true);
+    try {
+      await updateOrderStatus(id, newStatus);
+      setOrder(prev => ({ ...prev, status: newStatus }));
+      toast.success(`Status updated to ${STATUS_LABELS[newStatus]}`);
+    } catch (err) {
+      toast.error('Failed to update status');
+    }
+    setUpdating(false);
+  }
+
+  if (loading) return (
+    <div className="flex items-center justify-center h-64 text-gray-400">Loading order…</div>
+  );
+  if (!order) return (
+    <div className="text-center py-16 text-gray-400">Order not found</div>
+  );
+
+  const currentStatusIdx = STATUS_FLOW.indexOf(order.status);
+
+  return (
+    <>
+      <Toaster position="top-right" />
+      <div className="max-w-4xl mx-auto space-y-5">
+        {/* Back */}
+        <Link href="/orders" className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-gray-800">
+          <ArrowLeft size={16} /> Back to Orders
+        </Link>
+
+        {/* Header */}
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">
+                Order #{order.orderNumber || id.slice(-6).toUpperCase()}
+              </h2>
+              <p className="text-sm text-gray-400 flex items-center gap-1 mt-1">
+                <Clock size={13} /> {formatTimestamp(order.createdAt)}
+              </p>
+            </div>
+            <StatusBadge status={order.status} />
+          </div>
+        </div>
+
+        {/* Status stepper */}
+        {order.status !== ORDER_STATUS.CANCELLED && (
+          <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+            <h3 className="font-semibold text-gray-800 mb-4">Update Status</h3>
+            <div className="flex gap-2 flex-wrap">
+              {STATUS_FLOW.map((s, i) => (
+                <button
+                  key={s}
+                  disabled={updating || i <= currentStatusIdx}
+                  onClick={() => changeStatus(s)}
+                  className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors border ${
+                    i < currentStatusIdx
+                      ? 'bg-gray-50 text-gray-300 border-gray-100 cursor-default'
+                      : i === currentStatusIdx
+                        ? 'bg-orange-500 text-white border-orange-500 cursor-default'
+                        : 'bg-white text-gray-600 border-gray-200 hover:bg-orange-50 hover:border-orange-300 hover:text-orange-600'
+                  }`}
+                >
+                  {STATUS_LABELS[s]}
+                </button>
+              ))}
+              <button
+                disabled={updating || order.status === ORDER_STATUS.CANCELLED || order.status === ORDER_STATUS.DELIVERED}
+                onClick={() => changeStatus(ORDER_STATUS.CANCELLED)}
+                className="px-4 py-2 rounded-xl text-sm font-medium border bg-white text-red-500 border-red-200 hover:bg-red-50 disabled:opacity-40 disabled:cursor-default"
+              >
+                Cancel Order
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          {/* Customer info */}
+          <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 space-y-4">
+            <h3 className="font-semibold text-gray-800">Customer Details</h3>
+            <div className="space-y-3">
+              <div className="flex items-start gap-3">
+                <Phone size={16} className="text-orange-500 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="font-medium text-gray-800">{order.customerName || '—'}</p>
+                  <p className="text-sm text-gray-500">{order.phone}</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <MapPin size={16} className="text-orange-500 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-sm text-gray-700">{order.address?.address}</p>
+                  {order.address?.landmark && (
+                    <p className="text-xs text-gray-400">Landmark: {order.address.landmark}</p>
+                  )}
+                  {order.address?.pincode && (
+                    <p className="text-xs text-gray-400">PIN: {order.address.pincode}</p>
+                  )}
+                </div>
+              </div>
+              {order.notes && (
+                <div className="flex items-start gap-3">
+                  <MessageSquare size={16} className="text-orange-500 mt-0.5 flex-shrink-0" />
+                  <p className="text-sm text-gray-600 italic">"{order.notes}"</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Payment */}
+          <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 space-y-4">
+            <h3 className="font-semibold text-gray-800">Payment</h3>
+            <div className="flex items-center gap-3">
+              <CreditCard size={16} className="text-orange-500" />
+              <span className="font-medium text-gray-800">
+                {order.paymentMethod === 'upi' ? 'UPI / Manual Payment' : 'Cash on Delivery'}
+              </span>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-4 space-y-2">
+              <div className="flex justify-between text-sm text-gray-600">
+                <span>Subtotal</span>
+                <span>₹{order.total?.toLocaleString('en-IN') || 0}</span>
+              </div>
+              <div className="flex justify-between text-sm text-gray-600">
+                <span>Delivery</span>
+                <span className="text-green-600">Free</span>
+              </div>
+              <div className="border-t border-gray-200 pt-2 flex justify-between font-bold text-gray-900">
+                <span>Total</span>
+                <span>₹{order.total?.toLocaleString('en-IN') || 0}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Order items */}
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+          <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+            <Package size={18} className="text-orange-500" />
+            Order Items ({(order.items || []).length})
+          </h3>
+          <div className="space-y-3">
+            {(order.items || []).map((item, i) => (
+              <div key={i} className="flex items-center justify-between py-3 border-b border-gray-50 last:border-0">
+                <div>
+                  <p className="font-medium text-gray-800">{item.name}</p>
+                  <p className="text-xs text-gray-400">{item.unit} × {item.quantity}</p>
+                </div>
+                <p className="font-semibold text-gray-800">₹{(item.price * item.quantity).toLocaleString('en-IN')}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
