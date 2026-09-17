@@ -4,7 +4,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { adminLogout, getAdminUser } from '@/lib/auth';
 import {
   LayoutDashboard, ShoppingBag, Package, Grid3X3,
-  UserCheck, Image, BarChart3,
+  UserCheck, Image, BarChart3, MessageCircle,
   LogOut, X
 } from 'lucide-react';
 import clsx from 'clsx';
@@ -15,6 +15,7 @@ const NAV = [
   { href: '/products',      label: 'Products',       icon: Package,         group: 'main' },
   { href: '/categories',    label: 'Categories',     icon: Grid3X3,         group: 'main' },
   { href: '/users',         label: 'App Users',      icon: UserCheck,       group: 'engage' },
+  { href: '/requests',      label: 'Requests',       icon: MessageCircle,   group: 'engage' },
   { href: '/banners',       label: 'Banners',        icon: Image,           group: 'engage' },
   { href: '/reports',       label: 'Reports',        icon: BarChart3,       group: 'reports' },
 ];
@@ -54,8 +55,7 @@ export default function Sidebar({ open, onClose }) {
         {/* Logo header */}
         <div className="relative flex items-center justify-between px-5 py-5"
           style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-          <div className="flex items-center gap-3">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
+          <Link href="/dashboard" onClick={onClose} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
             <div className="w-9 h-9 rounded-xl flex items-center justify-center"
               style={{ background: 'linear-gradient(135deg, #f97316, #ea580c)', boxShadow: '0 4px 14px rgba(249,115,22,0.4)' }}>
               <span style={{ fontSize: 18 }}>🛒</span>
@@ -64,7 +64,7 @@ export default function Sidebar({ open, onClose }) {
               <p className="font-bold text-white text-sm leading-none">TheekKart</p>
               <p className="text-[10px] mt-0.5 font-medium" style={{ color: '#f97316' }}>Admin Panel</p>
             </div>
-          </div>
+          </Link>
           <button onClick={onClose} className="lg:hidden text-gray-500 hover:text-white transition-colors">
             <X size={18} />
           </button>
