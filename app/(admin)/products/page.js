@@ -13,7 +13,7 @@ import Image from 'next/image';
    Thumbnail shown in lists: first image (index 0) = Main image
 ─────────────────────────────────────────────────────────────── */
 const MAX_IMAGES = 7;
-const EMPTY = { name: '', description: '', price: '', unit: '', category: '', available: true, images: [] };
+const EMPTY = { name: '', description: '', price: '', originalPrice: '', unit: '', category: '', available: true, images: [] };
 
 
 export default function ProductsPage() {
@@ -110,10 +110,13 @@ export default function ProductsPage() {
     try {
       const data = {
         ...form,
-        price:  parseFloat(form.price),
-        image:  form.images[0] || '',   // keep legacy field for mobile app compat
-        images: form.images,
+        price:         parseFloat(form.price) || 0,
+        originalPrice: form.originalPrice !== '' ? parseFloat(form.originalPrice) || null : null,
+        image:         form.images[0] || '',   // keep legacy field for mobile app compat
+        images:        form.images,
       };
+      // Remove null originalPrice so it doesn't overwrite an existing value with null on partial edits
+      if (data.originalPrice === null) delete data.originalPrice;
       if (editing) { await updateProduct(editing, data); toast.success('Product updated'); }
       else         { await addProduct(data);             toast.success('Product added'); }
       setModal(false);
@@ -319,10 +322,11 @@ export default function ProductsPage() {
 
                 {/* ── Text fields ── */}
                 {[
-                  { label: 'Product Name *', key: 'name',        type: 'text'   },
-                  { label: 'Description',    key: 'description', type: 'text'   },
-                  { label: 'Price (₹) *',   key: 'price',       type: 'number' },
-                  { label: 'Unit (e.g. 1kg, 500ml)', key: 'unit', type: 'text' },
+                  { label: 'Product Name *', key: 'name',          type: 'text'   },
+                  { label: 'Description',    key: 'description',   type: 'text'   },
+                  { label: 'Price (₹) *',   key: 'price',         type: 'number' },
+                  { label: 'Original Price (₹) — leave blank if no discount', key: 'originalPrice', type: 'number' },
+                  { label: 'Unit (e.g. 1kg, 500ml)', key: 'unit',  type: 'text'   },
                 ].map(f => (
                   <div key={f.key}>
                     <label className="block text-sm font-medium text-gray-700 mb-1">{f.label}</label>

@@ -1,11 +1,12 @@
 'use client';
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { listenToOrders, ORDER_STATUS, formatTimestamp } from '@/lib/firestore';
+import { listenToOrders, ORDER_STATUS, formatTimestamp, addOrder, getProducts } from '@/lib/firestore';
 import { downloadExcel, downloadPDF } from '@/lib/download';
 import StatusBadge from '@/components/StatusBadge';
 import Link from 'next/link';
-import { Search, Eye, X, FileSpreadsheet, FileText } from 'lucide-react';
+import { Search, Eye, X, FileSpreadsheet, FileText, Plus, Minus } from 'lucide-react';
+import toast, { Toaster } from 'react-hot-toast';
 
 const STATUS_TABS = [
   { key: 'all',                           label: 'All' },
@@ -93,6 +94,256 @@ function DownloadButtons({ data, filename, title, disabled }) {
   );
 }
 
+// ── Add Order Modal ───────────────────────────────────────────────────────────
+function AddOrderModal({ onClose, onSaved }) {
+  const [products,      setProducts]      = useState([]);
+  const [loadingProds,  setLoadingProds]  = useState(true);
+  const [saving,        setSaving]        = useState(false);
+  const [search,        setSearch]        = useState('');
+
+  // customer fields
+  const [name,          setName]          = useState('');
+  const [phone,         setPhone]         = useState('');
+  const [address,       setAddress]       = useState('');
+  const [pincode,       setPincode]       = useState('');
+  const [landmark,      setLandmark]      = useState('');
+  const [payment,       setPayment]       = useState('cod');
+  const [notes,         setNotes]         = useState('');
+
+  // selectedQty: { [productId]: quantity }  — only populated for selected products
+  const [selectedQty, setSelectedQty] = useState({});
+
+  useEffect(() => {
+    getProducts().then(p => {
+      setProducts(p.filter(pr => pr.available !== false));
+      setLoadingProds(false);
+    });
+  }, []);
+
+  function setQty(id, qty) {
+    setSelectedQty(prev => {
+      if (qty <= 0) {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      }
+      return { ...prev, [id]: qty };
+    });
+  }
+
+  // Count of selected products (each unique product = 1 item regardless of its quantity)
+  const selectedIds = Object.keys(selectedQty);
+  const selectedCount = selectedIds.length;
+
+  const total = selectedIds.reduce((sum, id) => {
+    const prod = products.find(p => p.id === id);
+    return sum + (prod ? prod.price * selectedQty[id] : 0);
+  }, 0);
+
+  const visibleProducts = products.filter(p =>
+    !search || p.name?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  async function handleSave() {
+    if (!name.trim())    return toast.error('Customer name is required');
+    if (!phone.trim())   return toast.error('Phone number is required');
+    if (!address.trim()) return toast.error('Delivery address is required');
+    if (selectedCount === 0) return toast.error('Select at least one product');
+
+    const items = selectedIds.map(id => {
+      const p = products.find(pr => pr.id === id);
+      return {
+        productId: id,
+        name:      p.name,
+        price:     p.price,
+        quantity:  selectedQty[id],
+        unit:      p.unit || '',
+      };
+    });
+
+    const orderNum = `TK${Date.now().toString().substring(7)}`;
+    setSaving(true);
+    try {
+      await addOrder({
+        orderNumber:   orderNum,
+        customerId:    '',
+        customerEmail: '',
+        customerName:  name.trim(),
+        phone:         phone.trim(),
+        address: {
+          address:  address.trim(),
+          landmark: landmark.trim(),
+          pincode:  pincode.trim(),
+        },
+        items,            // item count = items.length, never hardcoded
+        total,
+        paymentMethod: payment,
+        notes:         notes.trim(),
+        status:        'received',
+        source:        'admin',
+      });
+      toast.success(`Order #${orderNum} created — ${items.length} item${items.length !== 1 ? 's' : ''}`);
+      onSaved();
+    } catch {
+      toast.error('Failed to create order');
+    }
+    setSaving(false);
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-start justify-center p-4 overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl my-4">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">Add Manual Order</h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {selectedCount > 0
+                ? `${selectedCount} product${selectedCount !== 1 ? 's' : ''} selected · ₹${total.toLocaleString('en-IN')}`
+                : 'Select products from the catalog below'}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="px-6 py-5 space-y-5">
+          {/* Customer details */}
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">Customer Details</h3>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Name *</label>
+                <input value={name} onChange={e => setName(e.target.value)}
+                  placeholder="Customer name"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Phone *</label>
+                <input value={phone} onChange={e => setPhone(e.target.value)}
+                  placeholder="+91 XXXXX XXXXX" type="tel"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-gray-600 mb-1">Delivery Address *</label>
+                <input value={address} onChange={e => setAddress(e.target.value)}
+                  placeholder="House no., Street, Area"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Pincode</label>
+                <input value={pincode} onChange={e => setPincode(e.target.value)}
+                  placeholder="625001" type="text"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Landmark</label>
+                <input value={landmark} onChange={e => setLandmark(e.target.value)}
+                  placeholder="Near ..."
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
+              </div>
+            </div>
+          </div>
+
+          {/* Product catalog picker */}
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700 mb-1">Select Products</h3>
+            <p className="text-xs text-gray-400 mb-3">
+              Each product you select becomes one line item. The order count equals the number of products selected.
+            </p>
+            <input
+              value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="Search products…"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-orange-400" />
+
+            {loadingProds ? (
+              <div className="py-8 text-center text-sm text-gray-400">Loading catalog…</div>
+            ) : (
+              <div className="max-h-64 overflow-y-auto rounded-xl border border-gray-100 divide-y divide-gray-50">
+                {visibleProducts.length === 0 ? (
+                  <div className="py-8 text-center text-sm text-gray-400">No products found</div>
+                ) : visibleProducts.map(p => {
+                  const qty = selectedQty[p.id] || 0;
+                  const selected = qty > 0;
+                  return (
+                    <div key={p.id}
+                      className={`flex items-center gap-3 px-4 py-3 transition-colors ${selected ? 'bg-orange-50' : 'bg-white hover:bg-gray-50'}`}>
+                      {/* Checkbox */}
+                      <input type="checkbox" checked={selected}
+                        onChange={() => setQty(p.id, selected ? 0 : 1)}
+                        className="h-4 w-4 accent-orange-500 flex-shrink-0 cursor-pointer" />
+                      {/* Product info */}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-800 truncate">{p.name}</p>
+                        <p className="text-xs text-gray-400">
+                          ₹{p.price?.toLocaleString('en-IN')}
+                          {p.unit ? ` · ${p.unit}` : ''}
+                        </p>
+                      </div>
+                      {/* Quantity stepper — only shown when selected */}
+                      {selected && (
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <button onClick={() => setQty(p.id, qty - 1)}
+                            className="w-7 h-7 rounded-full border border-gray-200 flex items-center justify-center hover:bg-gray-100">
+                            <Minus size={12} />
+                          </button>
+                          <span className="w-6 text-center text-sm font-semibold">{qty}</span>
+                          <button onClick={() => setQty(p.id, qty + 1)}
+                            className="w-7 h-7 rounded-full bg-orange-500 text-white flex items-center justify-center hover:bg-orange-600">
+                            <Plus size={12} />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Payment + Notes */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Payment Method</label>
+              <select value={payment} onChange={e => setPayment(e.target.value)}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400">
+                <option value="cod">Cash on Delivery</option>
+                <option value="upi">UPI / Paid</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Notes (optional)</label>
+              <input value={notes} onChange={e => setNotes(e.target.value)}
+                placeholder="Delivery instructions…"
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between">
+          <div className="text-sm text-gray-500">
+            {selectedCount > 0
+              ? <><span className="font-semibold text-gray-900">{selectedCount} product{selectedCount !== 1 ? 's' : ''}</span> · ₹{total.toLocaleString('en-IN')}</>
+              : 'No products selected'}
+          </div>
+          <div className="flex gap-3">
+            <button onClick={onClose} disabled={saving}
+              className="px-4 py-2 rounded-xl text-sm font-medium border border-gray-200 hover:bg-gray-50 disabled:opacity-40">
+              Cancel
+            </button>
+            <button onClick={handleSave} disabled={saving}
+              className="px-5 py-2 rounded-xl text-sm font-semibold bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-40 transition-colors">
+              {saving ? 'Creating…' : 'Create Order'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function OrdersContent() {
   const params        = useSearchParams();
   const router        = useRouter();
@@ -100,10 +351,11 @@ function OrdersContent() {
   const filterUid     = !filterEmail ? (params.get('customerId')   || null) : null;
   const filterName    = (!filterEmail && !filterUid) ? (params.get('customerName') || null) : null;
 
-  const [orders,  setOrders]  = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [tab,     setTab]     = useState('all');
-  const [search,  setSearch]  = useState('');
+  const [orders,      setOrders]      = useState([]);
+  const [loading,     setLoading]     = useState(true);
+  const [tab,         setTab]         = useState('all');
+  const [search,      setSearch]      = useState('');
+  const [showAddModal, setShowAddModal] = useState(false);
 
   useEffect(() => {
     const unsub = listenToOrders(data => { setOrders(data); setLoading(false); });
@@ -141,6 +393,14 @@ function OrdersContent() {
 
   return (
     <div className="space-y-4">
+      <Toaster position="top-right" />
+
+      {showAddModal && (
+        <AddOrderModal
+          onClose={() => setShowAddModal(false)}
+          onSaved={() => setShowAddModal(false)}
+        />
+      )}
 
       {/* Customer filter banner */}
       {isFiltered && (
@@ -158,7 +418,7 @@ function OrdersContent() {
         </div>
       )}
 
-      {/* Search + download */}
+      {/* Search + Add Order + download */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
         <div className="flex gap-3 items-center">
           <div className="relative flex-1">
@@ -171,6 +431,11 @@ function OrdersContent() {
               className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
             />
           </div>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold bg-orange-500 text-white hover:bg-orange-600 transition-colors flex-shrink-0">
+            <Plus size={15} /> Add Order
+          </button>
           <DownloadButtons
             data={filtered}
             filename={dlName}
@@ -237,6 +502,9 @@ function OrdersContent() {
                     <tr key={order.id} className="hover:bg-gray-50">
                       <td className="px-5 py-3 font-medium text-gray-800">
                         #{order.orderNumber || order.id.slice(-6).toUpperCase()}
+                        {order.source === 'admin' && (
+                          <span className="ml-1.5 text-[10px] bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded-full font-semibold">Manual</span>
+                        )}
                       </td>
                       <td className="px-5 py-3">
                         <div className="font-medium text-gray-800">{order.customerName || '—'}</div>
