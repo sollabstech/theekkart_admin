@@ -43,24 +43,35 @@ export default function BannersPage() {
     if (!form.imageUrl) return toast.error('Please upload a banner image');
     setSaving(true);
     try {
-      await addBanner({ ...form, order: parseInt(form.order) || 1 });
+      const data = { ...form, order: parseInt(form.order) || 1 };
+      const docRef = await addBanner(data);
+      setBanners(prev => [...prev, { ...data, id: docRef.id }].sort((a, b) => a.order - b.order));
       toast.success('Banner added');
       setModal(false);
-      load();
     } catch { toast.error('Failed to save'); }
     setSaving(false);
   }
 
   async function handleDelete(id) {
     if (!confirm('Delete this banner?')) return;
-    await deleteBanner(id);
-    toast.success('Deleted');
-    load();
+    setBanners(prev => prev.filter(x => x.id !== id));
+    try {
+      await deleteBanner(id);
+      toast.success('Deleted');
+    } catch {
+      toast.error('Delete failed');
+      load();
+    }
   }
 
   async function toggleActive(b) {
-    await updateBanner(b.id, { active: !b.active });
-    load();
+    setBanners(prev => prev.map(x => x.id === b.id ? { ...x, active: !x.active } : x));
+    try {
+      await updateBanner(b.id, { active: !b.active });
+    } catch {
+      setBanners(prev => prev.map(x => x.id === b.id ? { ...x, active: b.active } : x));
+      toast.error('Update failed');
+    }
   }
 
   return (
@@ -84,7 +95,7 @@ export default function BannersPage() {
               <div key={b.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                 <div className="relative h-48">
                   {b.imageUrl ? (
-                    <Image src={b.imageUrl} alt={b.title || 'Banner'} fill className="object-cover" />
+                    <Image src={b.imageUrl} alt={b.title || 'Banner'} fill sizes="(max-width: 1024px) 100vw, 50vw" className="object-cover" />
                   ) : (
                     <div className="flex items-center justify-center h-full bg-gray-50 text-gray-300">
                       <ImagePlus size={40} />

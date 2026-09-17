@@ -84,7 +84,7 @@ export default function DashboardPage() {
           boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
           opacity: mounted ? 1 : 0,
           transform: mounted ? 'none' : 'translateY(8px)',
-          transition: 'all 0.5s ease',
+          transition: 'opacity 0.4s ease, transform 0.4s ease',
         }}>
         {/* Glow */}
         <div style={{

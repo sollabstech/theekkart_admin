@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import { getProducts, addProduct, updateProduct, deleteProduct, getCategories } from '@/lib/firestore';
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '@/lib/firebase';
@@ -112,33 +112,49 @@ export default function ProductsPage() {
         ...form,
         price:         parseFloat(form.price) || 0,
         originalPrice: form.originalPrice !== '' ? parseFloat(form.originalPrice) || null : null,
-        image:         form.images[0] || '',   // keep legacy field for mobile app compat
+        image:         form.images[0] || '',
         images:        form.images,
       };
-      // Remove null originalPrice so it doesn't overwrite an existing value with null on partial edits
       if (data.originalPrice === null) delete data.originalPrice;
-      if (editing) { await updateProduct(editing, data); toast.success('Product updated'); }
-      else         { await addProduct(data);             toast.success('Product added'); }
+      if (editing) {
+        await updateProduct(editing, data);
+        setProducts(prev => prev.map(x => x.id === editing ? { ...x, ...data, id: editing } : x));
+        toast.success('Product updated');
+      } else {
+        const docRef = await addProduct(data);
+        setProducts(prev => [{ ...data, id: docRef.id }, ...prev]);
+        toast.success('Product added');
+      }
       setModal(false);
-      load();
     } catch { toast.error('Failed to save'); }
     setSaving(false);
   }
 
   async function handleDelete(id) {
     if (!confirm('Delete this product?')) return;
-    await deleteProduct(id);
-    toast.success('Deleted');
-    load();
+    setProducts(prev => prev.filter(x => x.id !== id));
+    try {
+      await deleteProduct(id);
+      toast.success('Deleted');
+    } catch {
+      toast.error('Delete failed');
+      load(); // revert on error
+    }
   }
 
   async function toggleAvailability(p) {
-    await updateProduct(p.id, { available: !p.available });
-    load();
+    setProducts(prev => prev.map(x => x.id === p.id ? { ...x, available: !x.available } : x));
+    try {
+      await updateProduct(p.id, { available: !p.available });
+    } catch {
+      setProducts(prev => prev.map(x => x.id === p.id ? { ...x, available: p.available } : x));
+      toast.error('Update failed');
+    }
   }
 
-  const filtered = products.filter(p =>
-    !search || p.name?.toLowerCase().includes(search.toLowerCase())
+  const filtered = useMemo(
+    () => products.filter(p => !search || p.name?.toLowerCase().includes(search.toLowerCase())),
+    [products, search],
   );
 
   /* ── Image slots for the modal ── */
@@ -186,7 +202,7 @@ export default function ProductsPage() {
                 <div key={p.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                   <div className="relative h-40 bg-gray-50">
                     {mainImg ? (
-                      <Image src={mainImg} alt={p.name} fill className="object-cover" unoptimized />
+                      <Image src={mainImg} alt={p.name} fill sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw" className="object-cover" />
                     ) : (
                       <div className="flex items-center justify-center h-full text-gray-200">
                         <ImagePlus size={40} />

@@ -4,7 +4,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { adminLogout, getAdminUser } from '@/lib/auth';
 import {
   LayoutDashboard, ShoppingBag, Package, Grid3X3,
-  UserCheck, Image, BarChart3, MessageCircle, Flag,
+  UserCheck, Image, BarChart3, MessageCircle,
   LogOut, X
 } from 'lucide-react';
 import clsx from 'clsx';
@@ -16,7 +16,6 @@ const NAV = [
   { href: '/categories',    label: 'Categories',     icon: Grid3X3,         group: 'main' },
   { href: '/users',         label: 'App Users',      icon: UserCheck,       group: 'engage' },
   { href: '/requests',      label: 'Requests',       icon: MessageCircle,   group: 'engage' },
-  { href: '/issues',        label: 'Issue Reports',  icon: Flag,            group: 'engage' },
   { href: '/banners',       label: 'Banners',        icon: Image,           group: 'engage' },
   { href: '/reports',       label: 'Reports',        icon: BarChart3,       group: 'reports' },
 ];
