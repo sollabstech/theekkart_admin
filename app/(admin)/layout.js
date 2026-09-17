@@ -1,9 +1,9 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Sidebar from '@/components/Sidebar';
 import Header from '@/components/Header';
 import AdminGuard from '@/components/AdminGuard';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 
 const PAGE_TITLES = {
   '/dashboard':     'Dashboard',
@@ -13,6 +13,7 @@ const PAGE_TITLES = {
   '/customers':     'Customers',
   '/users':         'App Users',
   '/requests':      'Ask TheekKart Requests',
+  '/issues':        'Issue Reports',
   '/banners':       'Banners & Offers',
   '/notifications': 'Notifications',
   '/reports':       'Reports',
@@ -21,8 +22,30 @@ const PAGE_TITLES = {
 export default function AdminLayout({ children }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const pathname = usePathname();
+  const router = useRouter();
   const baseRoute = '/' + pathname.split('/')[1];
   const title = PAGE_TITLES[baseRoute] || 'Admin';
+
+  // Prevent browser back from leaving the admin panel.
+  // On mount, push a sentinel so there is always an admin entry below the
+  // current page. On popstate, if the new location would exit the admin,
+  // redirect to /dashboard instead.
+  useEffect(() => {
+    window.history.pushState({ adminSentinel: true }, '');
+
+    function handlePop() {
+      const path = window.location.pathname;
+      const adminRoutes = Object.keys(PAGE_TITLES);
+      const isInsideAdmin = adminRoutes.some(r => path === r || path.startsWith(r + '/'));
+      if (!isInsideAdmin) {
+        window.history.pushState(null, '', '/dashboard');
+        router.replace('/dashboard');
+      }
+    }
+
+    window.addEventListener('popstate', handlePop);
+    return () => window.removeEventListener('popstate', handlePop);
+  }, [router]);
 
   return (
     <AdminGuard>
