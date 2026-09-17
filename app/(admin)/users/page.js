@@ -3,13 +3,12 @@ import { useEffect, useState } from 'react';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, orderBy, query } from 'firebase/firestore';
 import { downloadExcel, downloadPDF } from '@/lib/download';
-import { Search, Mail, User, FileSpreadsheet, FileText } from 'lucide-react';
+import { Search, Phone, User, FileSpreadsheet, FileText } from 'lucide-react';
 
 const PDF_COLS = [
-  { header: 'Name',     key: 'name' },
-  { header: 'Gmail ID', key: 'email' },
-  { header: 'Phone',    key: 'phone' },
-  { header: 'Joined',   key: 'joined' },
+  { header: 'Name',   key: 'name'   },
+  { header: 'Phone',  key: 'phone'  },
+  { header: 'Joined', key: 'joined' },
 ];
 
 export default function UsersPage() {
@@ -39,7 +38,7 @@ export default function UsersPage() {
   const filtered = users.filter(u => {
     if (!search) return true;
     const q = search.toLowerCase();
-    return (u.name || '').toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q);
+    return (u.name || '').toLowerCase().includes(q) || (u.phone || '').includes(q);
   });
 
   // ── helpers ──────────────────────────────────────────────
@@ -51,17 +50,15 @@ export default function UsersPage() {
 
   function toRows(list) {
     return list.map(u => ({
-      'Name':     u.name  || '—',
-      'Gmail ID': u.email || '—',
-      'Phone':    u.phone || '—',
-      'Joined':   fmt(u.createdAt),
+      'Name':   u.name  || '—',
+      'Phone':  u.phone || '—',
+      'Joined': fmt(u.createdAt),
     }));
   }
 
   function toPDFRows(list) {
     return list.map(u => ({
       name:   u.name  || '—',
-      email:  u.email || '—',
       phone:  u.phone || '—',
       joined: fmt(u.createdAt),
     }));
@@ -91,7 +88,7 @@ export default function UsersPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
           <input
             type="text"
-            placeholder="Search by name or Gmail ID…"
+            placeholder="Search by name or phone number…"
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm
@@ -159,7 +156,7 @@ export default function UsersPage() {
                   <div className="w-10 h-10 rounded-full bg-orange-100 items-center justify-center
                     text-orange-600 font-bold text-sm uppercase shrink-0"
                     style={{ display: u.photo ? 'none' : 'flex' }}>
-                    {(u.name || u.email || '?').charAt(0)}
+                    {(u.name || '?').charAt(0)}
                   </div>
 
                   {/* Info */}
@@ -171,8 +168,8 @@ export default function UsersPage() {
                       </span>
                     </div>
                     <div className="flex items-center gap-1.5 mt-0.5">
-                      <Mail size={13} className="text-gray-400 shrink-0" />
-                      <span className="text-xs text-gray-500 truncate">{u.email || '—'}</span>
+                      <Phone size={13} className="text-gray-400 shrink-0" />
+                      <span className="text-xs text-gray-500 truncate">{u.phone || '—'}</span>
                     </div>
                   </div>
 
