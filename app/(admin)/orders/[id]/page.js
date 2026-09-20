@@ -35,6 +35,33 @@ export default function OrderDetailPage({ params }) {
       await updateOrderStatus(id, newStatus);
       setOrder(prev => ({ ...prev, status: newStatus }));
       toast.success(`Status updated to ${STATUS_LABELS[newStatus]}`);
+
+      // Push FCM notification to customer
+      if (order.customerId) {
+        try {
+          const { getDoc, doc } = await import('firebase/firestore');
+          const { db } = await import('@/lib/firebase');
+          const userSnap = await getDoc(doc(db, 'users', order.customerId));
+          const fcmToken = userSnap.data()?.fcmToken;
+          if (fcmToken) {
+            const msgMap = {
+              confirmed:        { title: '✅ Order Confirmed!',       body: 'Your order is confirmed and being prepared.' },
+              preparing:        { title: '👨‍🍳 Preparing Your Order',  body: 'Our team is preparing your order.' },
+              out_for_delivery: { title: '🚴 Out for Delivery!',      body: 'Your order is on the way! Get ready.' },
+              delivered:        { title: '🎉 Order Delivered!',       body: 'Your order has been delivered. Enjoy!' },
+              cancelled:        { title: '❌ Order Cancelled',         body: 'Your order has been cancelled. Contact us for help.' },
+            };
+            const msg = msgMap[newStatus];
+            if (msg) {
+              await fetch('/api/notify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: fcmToken, ...msg }),
+              });
+            }
+          }
+        } catch (_) {}
+      }
     } catch (err) {
       toast.error('Failed to update status');
     }

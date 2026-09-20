@@ -10,13 +10,16 @@ import toast, { Toaster } from 'react-hot-toast';
 
 const STATUS_TABS = [
   { key: 'all',                           label: 'All' },
-  { key: ORDER_STATUS.RECEIVED,           label: 'New' },
+  { key: ORDER_STATUS.RECEIVED,           label: 'New Orders' },
+  { key: 'active',                        label: 'In Progress' },
   { key: ORDER_STATUS.CONFIRMED,          label: 'Confirmed' },
   { key: ORDER_STATUS.PREPARING,          label: 'Preparing' },
   { key: ORDER_STATUS.OUT_FOR_DELIVERY,   label: 'Out for Delivery' },
   { key: ORDER_STATUS.DELIVERED,          label: 'Delivered' },
   { key: ORDER_STATUS.CANCELLED,          label: 'Cancelled' },
 ];
+
+const ACTIVE_STATUSES = [ORDER_STATUS.CONFIRMED, ORDER_STATUS.PREPARING, ORDER_STATUS.OUT_FOR_DELIVERY];
 
 // PDF column definitions
 const PDF_COLS = [
@@ -350,10 +353,11 @@ function OrdersContent() {
   const filterEmail   = (params.get('customerEmail') || '').trim().toLowerCase() || null;
   const filterUid     = !filterEmail ? (params.get('customerId')   || null) : null;
   const filterName    = (!filterEmail && !filterUid) ? (params.get('customerName') || null) : null;
+  const tabParam      = params.get('tab') || 'all';
 
   const [orders,      setOrders]      = useState([]);
   const [loading,     setLoading]     = useState(true);
-  const [tab,         setTab]         = useState('all');
+  const [tab,         setTab]         = useState(tabParam);
   const [search,      setSearch]      = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
 
@@ -370,7 +374,11 @@ function OrdersContent() {
   }
 
   const filtered = orders.filter(o => {
-    const matchTab    = tab === 'all' || o.status === tab;
+    const matchTab    = tab === 'all'
+      ? true
+      : tab === 'active'
+        ? ACTIVE_STATUSES.includes(o.status)
+        : o.status === tab;
     const matchCust   = matchesCustomer(o);
     const q           = search.toLowerCase();
     const matchSearch = !q || (
@@ -450,7 +458,9 @@ function OrdersContent() {
         {STATUS_TABS.map(t => {
           const count = t.key === 'all'
             ? orders.filter(o => matchesCustomer(o)).length
-            : orders.filter(o => o.status === t.key && matchesCustomer(o)).length;
+            : t.key === 'active'
+              ? orders.filter(o => ACTIVE_STATUSES.includes(o.status) && matchesCustomer(o)).length
+              : orders.filter(o => o.status === t.key && matchesCustomer(o)).length;
           return (
             <button key={t.key} onClick={() => setTab(t.key)}
               className={`flex-shrink-0 px-4 py-2 rounded-xl text-sm font-medium transition-colors ${

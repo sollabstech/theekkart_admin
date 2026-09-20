@@ -1,47 +1,87 @@
 'use client';
 import { useState } from 'react';
-import { Bell, Send, Users, Package } from 'lucide-react';
+import { collection, getDocs } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import { Bell, Send, Users, CheckCircle } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
 import toast from 'react-hot-toast';
 
-// Note: FCM server-side notifications require a backend (Firebase Cloud Functions)
-// This page shows the UI. Connect to Cloud Functions in Phase 2.
-
 const QUICK_MESSAGES = [
-  { title: 'Order Confirmed', body: 'Your order has been confirmed and is being processed.' },
-  { title: 'Out for Delivery', body: 'Your order is on its way! It will be delivered shortly.' },
-  { title: 'Order Delivered', body: 'Your order has been delivered. Thank you for shopping with TheekKart!' },
-  { title: 'Special Offer', body: "Don't miss today's special offers on TheekKart!" },
+  { title: '✅ Order Confirmed!',     body: 'Your order has been confirmed and is being prepared.' },
+  { title: '🚴 Out for Delivery!',   body: 'Your order is on the way! It will be delivered shortly.' },
+  { title: '🎉 Order Delivered!',     body: 'Your order has been delivered. Thank you for shopping with TheekKart!' },
+  { title: '🏷️ Special Offer!',      body: "Don't miss today's exclusive deals on TheekKart — open the app now!" },
+  { title: '🛍️ New Items Added!',    body: 'Fresh products just arrived. Check them out on TheekKart!' },
 ];
 
 export default function NotificationsPage() {
-  const [title, setTitle] = useState('');
-  const [body, setBody] = useState('');
-  const [target, setTarget] = useState('all');
+  const [title,   setTitle]   = useState('');
+  const [body,    setBody]    = useState('');
   const [sending, setSending] = useState(false);
 
   async function handleSend() {
-    if (!title || !body) return toast.error('Title and message are required');
+    if (!title.trim() || !body.trim()) return toast.error('Title and message are required');
     setSending(true);
-    // TODO: Connect to Firebase Cloud Functions endpoint in Phase 2
-    await new Promise(r => setTimeout(r, 1000));
-    toast.success('Notification queued (connect Cloud Functions in Phase 2)');
+
+    try {
+      // Collect all FCM tokens from users collection
+      const snap = await getDocs(collection(db, 'users'));
+      const tokens = snap.docs
+        .map(d => d.data().fcmToken)
+        .filter(Boolean);
+
+      if (tokens.length === 0) {
+        toast.error('No registered devices found. Make sure users have opened the app at least once.');
+        setSending(false);
+        return;
+      }
+
+      // Send in batches of 500 (FCM multicast limit)
+      const batches = [];
+      for (let i = 0; i < tokens.length; i += 500) {
+        batches.push(tokens.slice(i, i + 500));
+      }
+
+      let successCount = 0;
+      for (const batch of batches) {
+        const res = await fetch('/api/notify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tokens: batch, title: title.trim(), body: body.trim() }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          successCount += batch.length;
+        } else {
+          toast.error(data.error || 'Send failed');
+        }
+      }
+
+      if (successCount > 0) {
+        toast.success(`Notification sent to ${tokens.length} device${tokens.length !== 1 ? 's' : ''}!`);
+        setTitle('');
+        setBody('');
+      }
+    } catch (err) {
+      toast.error('Failed to send notification');
+    }
     setSending(false);
-    setTitle('');
-    setBody('');
   }
 
   return (
     <>
       <Toaster position="top-right" />
       <div className="max-w-2xl space-y-6">
-        {/* Info banner */}
-        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex gap-3">
-          <Bell size={20} className="text-amber-500 flex-shrink-0 mt-0.5" />
+
+        {/* How it works banner */}
+        <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 flex gap-3">
+          <CheckCircle size={20} className="text-blue-500 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-semibold text-amber-800">Phase 2 Feature</p>
-            <p className="text-sm text-amber-700 mt-0.5">
-              Push notifications require Firebase Cloud Functions. The UI is ready — connect your FCM endpoint in Phase 2 to send real notifications.
+            <p className="text-sm font-semibold text-blue-800">Push Notifications Active</p>
+            <p className="text-sm text-blue-700 mt-0.5">
+              Order status updates are sent automatically when you update an order. Use this page to broadcast announcements to all customers.
+              <br />
+              <span className="font-medium">Requires <code className="bg-blue-100 px-1 rounded">FCM_SERVER_KEY</code> in <code className="bg-blue-100 px-1 rounded">.env.local</code>.</span>
             </p>
           </div>
         </div>
@@ -65,34 +105,19 @@ export default function NotificationsPage() {
 
         {/* Compose */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-          <h2 className="font-semibold text-gray-800 mb-4">Compose Notification</h2>
+          <div className="flex items-center gap-2 mb-4">
+            <Users size={18} className="text-orange-500" />
+            <h2 className="font-semibold text-gray-800">Broadcast to All Customers</h2>
+          </div>
           <div className="space-y-4">
-            {/* Target */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Send To</label>
-              <div className="flex gap-3">
-                <label className={`flex-1 flex items-center gap-2 p-3 rounded-xl border cursor-pointer ${target === 'all' ? 'border-orange-400 bg-orange-50' : 'border-gray-200'}`}>
-                  <input type="radio" value="all" checked={target === 'all'} onChange={() => setTarget('all')} className="accent-orange-500" />
-                  <Users size={16} className="text-orange-500" />
-                  <span className="text-sm font-medium">All Customers</span>
-                </label>
-                <label className={`flex-1 flex items-center gap-2 p-3 rounded-xl border cursor-pointer ${target === 'order' ? 'border-orange-400 bg-orange-50' : 'border-gray-200'}`}>
-                  <input type="radio" value="order" checked={target === 'order'} onChange={() => setTarget('order')} className="accent-orange-500" />
-                  <Package size={16} className="text-orange-500" />
-                  <span className="text-sm font-medium">Specific Order</span>
-                </label>
-              </div>
-            </div>
-
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
               <input
-                type="text" value={title} placeholder="e.g. Order Confirmed"
+                type="text" value={title} placeholder="e.g. Special Offer!"
                 onChange={e => setTitle(e.target.value)}
                 className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
               />
             </div>
-
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Message</label>
               <textarea
@@ -111,8 +136,8 @@ export default function NotificationsPage() {
                     <Bell size={14} className="text-white" />
                   </div>
                   <div>
-                    <p className="text-xs font-semibold text-gray-900">{title || 'Notification Title'}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">{body || 'Notification message…'}</p>
+                    <p className="text-xs font-semibold text-gray-900">{title || 'Title'}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">{body || 'Message…'}</p>
                   </div>
                 </div>
               </div>
@@ -122,7 +147,7 @@ export default function NotificationsPage() {
               onClick={handleSend} disabled={sending}
               className="w-full flex items-center justify-center gap-2 py-3 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold rounded-xl disabled:opacity-60 transition-colors"
             >
-              <Send size={16} /> {sending ? 'Sending…' : 'Send Notification'}
+              <Send size={16} /> {sending ? 'Sending…' : 'Send to All Customers'}
             </button>
           </div>
         </div>

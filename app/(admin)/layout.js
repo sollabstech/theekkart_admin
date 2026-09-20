@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import Sidebar from '@/components/Sidebar';
 import Header from '@/components/Header';
 import AdminGuard from '@/components/AdminGuard';
+import NotificationWatcher from '@/components/NotificationWatcher';
 import { usePathname, useRouter } from 'next/navigation';
 
 const PAGE_TITLES = {
@@ -13,6 +14,7 @@ const PAGE_TITLES = {
   '/customers':     'Customers',
   '/users':         'App Users',
   '/requests':      'Requests',
+  '/home-services': 'Home Services',
   '/banners':       'Banners & Offers',
   '/notifications': 'Notifications',
   '/reports':       'Reports',
@@ -48,6 +50,7 @@ export default function AdminLayout({ children }) {
 
   return (
     <AdminGuard>
+      <NotificationWatcher />
       <div className="flex h-screen overflow-hidden bg-gray-50">
         <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 

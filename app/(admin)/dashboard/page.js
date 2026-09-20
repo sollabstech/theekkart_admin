@@ -9,9 +9,9 @@ import {
 } from 'lucide-react';
 
 /* ── Stat card ─────────────────────────────────────────────── */
-function StatCard({ label, value, icon: Icon, gradient, textColor, delta }) {
-  return (
-    <div className="relative bg-white rounded-2xl p-5 overflow-hidden"
+function StatCard({ label, value, icon: Icon, gradient, textColor, delta, href }) {
+  const inner = (
+    <div className="relative bg-white rounded-2xl p-5 overflow-hidden transition-transform hover:scale-[1.02]"
       style={{ boxShadow: '0 2px 16px rgba(0,0,0,0.06)', border: '1px solid rgba(0,0,0,0.05)' }}>
       {/* Background tint */}
       <div className="absolute top-0 right-0 w-32 h-32 -translate-y-6 translate-x-6 rounded-full opacity-10"
@@ -29,6 +29,7 @@ function StatCard({ label, value, icon: Icon, gradient, textColor, delta }) {
       )}
     </div>
   );
+  return href ? <Link href={href}>{inner}</Link> : inner;
 }
 
 /* ── Mini metric pill ───────────────────────────────────────── */
@@ -120,10 +121,10 @@ export default function DashboardPage() {
 
       {/* ── Stat grid ──────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="New Orders"  value={v(counts.new)}       icon={ShoppingBag}  gradient="#3b82f6" textColor="#3b82f6"  delta="Waiting to confirm" />
-        <StatCard label="In Progress" value={v(counts.active)}    icon={Clock}        gradient="#f97316" textColor="#f97316"  delta="Being prepared" />
-        <StatCard label="Delivered"   value={v(counts.delivered)} icon={CheckCircle}  gradient="#22c55e" textColor="#22c55e"  delta="Completed" />
-        <StatCard label="Cancelled"   value={v(counts.cancelled)} icon={XCircle}      gradient="#ef4444" textColor="#ef4444"  delta="Not fulfilled" />
+        <StatCard label="New Orders"  value={v(counts.new)}       icon={ShoppingBag}  gradient="#3b82f6" textColor="#3b82f6"  delta="Waiting to confirm" href="/orders?tab=received" />
+        <StatCard label="In Progress" value={v(counts.active)}    icon={Clock}        gradient="#f97316" textColor="#f97316"  delta="Being prepared"     href="/orders?tab=active" />
+        <StatCard label="Delivered"   value={v(counts.delivered)} icon={CheckCircle}  gradient="#22c55e" textColor="#22c55e"  delta="Completed"           href="/orders?tab=delivered" />
+        <StatCard label="Cancelled"   value={v(counts.cancelled)} icon={XCircle}      gradient="#ef4444" textColor="#ef4444"  delta="Not fulfilled"       href="/orders?tab=cancelled" />
       </div>
 
       {/* ── Quick actions ───────────────────────────────────────── */}
