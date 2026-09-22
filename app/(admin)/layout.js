@@ -15,6 +15,8 @@ const PAGE_TITLES = {
   '/users':         'App Users',
   '/requests':      'Requests',
   '/home-services': 'Home Services',
+  '/promo-codes':   'Promo Codes',
+  '/partners':      'Partner Applications',
   '/banners':       'Banners & Offers',
   '/notifications': 'Notifications',
   '/reports':       'Reports',

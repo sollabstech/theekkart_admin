@@ -5,7 +5,7 @@ import { adminLogout, getAdminUser } from '@/lib/auth';
 import {
   LayoutDashboard, ShoppingBag, Package, Grid3X3,
   UserCheck, Image, BarChart3, MessageCircle, Wrench,
-  LogOut, X
+  LogOut, X, Tag, Handshake
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -17,6 +17,8 @@ const NAV = [
   { href: '/users',         label: 'App Users',      icon: UserCheck,       group: 'engage' },
   { href: '/requests',      label: 'Requests',       icon: MessageCircle,   group: 'engage' },
   { href: '/home-services', label: 'Home Services',  icon: Wrench,          group: 'engage' },
+  { href: '/promo-codes',   label: 'Promo Codes',    icon: Tag,             group: 'engage' },
+  { href: '/partners',      label: 'Partners',       icon: Handshake,       group: 'engage' },
   { href: '/banners',       label: 'Banners',        icon: Image,           group: 'engage' },
   { href: '/reports',       label: 'Reports',        icon: BarChart3,       group: 'reports' },
 ];
