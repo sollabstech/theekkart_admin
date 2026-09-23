@@ -1,11 +1,11 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { use } from 'react';
-import { getOrder, updateOrderStatus, ORDER_STATUS, STATUS_LABELS, formatTimestamp } from '@/lib/firestore';
+import { getOrder, updateOrderStatus, updateOrderFields, getApprovedPartners, ORDER_STATUS, STATUS_LABELS, formatTimestamp } from '@/lib/firestore';
 import StatusBadge from '@/components/StatusBadge';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
-import { ArrowLeft, Phone, MapPin, Clock, Package, CreditCard, MessageSquare } from 'lucide-react';
+import { ArrowLeft, Phone, MapPin, Clock, Package, CreditCard, MessageSquare, Store, Bike, ChevronDown } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
 
 const STATUS_FLOW = [
@@ -18,9 +18,19 @@ const STATUS_FLOW = [
 
 export default function OrderDetailPage({ params }) {
   const { id } = use(params);
-  const [order, setOrder] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [order,    setOrder]    = useState(null);
+  const [loading,  setLoading]  = useState(true);
   const [updating, setUpdating] = useState(false);
+  const [partners, setPartners] = useState([]);
+  const [assigningVendor, setAssigningVendor] = useState(false);
+  const [assigningRider,  setAssigningRider]  = useState(false);
+
+  useEffect(() => {
+    getApprovedPartners().then(setPartners);
+  }, []);
+
+  const vendors = partners.filter(p => p.role === 'vendor');
+  const riders  = partners.filter(p => p.role === 'rider');
 
   useEffect(() => {
     getOrder(id).then(data => {
@@ -28,6 +38,30 @@ export default function OrderDetailPage({ params }) {
       setLoading(false);
     });
   }, [id]);
+
+  async function assignVendor(vendorId) {
+    const vendor = vendors.find(v => v.id === vendorId);
+    if (!vendor) return;
+    setAssigningVendor(true);
+    try {
+      await updateOrderFields(id, { vendorId, vendorName: vendor.name, status: 'confirmed' });
+      setOrder(prev => ({ ...prev, vendorId, vendorName: vendor.name, status: 'confirmed' }));
+      toast.success(`Assigned to vendor: ${vendor.name}`);
+    } catch { toast.error('Failed to assign vendor'); }
+    setAssigningVendor(false);
+  }
+
+  async function assignRider(riderId) {
+    const rider = riders.find(r => r.id === riderId);
+    if (!rider) return;
+    setAssigningRider(true);
+    try {
+      await updateOrderFields(id, { riderId, riderName: rider.name });
+      setOrder(prev => ({ ...prev, riderId, riderName: rider.name }));
+      toast.success(`Assigned to rider: ${rider.name}`);
+    } catch { toast.error('Failed to assign rider'); }
+    setAssigningRider(false);
+  }
 
   async function changeStatus(newStatus) {
     setUpdating(true);
@@ -133,6 +167,79 @@ export default function OrderDetailPage({ params }) {
           </div>
         )}
 
+        {/* Vendor & Rider assignment */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+          {/* Vendor */}
+          <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+            <div className="flex items-center gap-2 mb-3">
+              <Store size={16} className="text-orange-500" />
+              <h3 className="font-semibold text-gray-800">Vendor</h3>
+            </div>
+            {order.vendorName ? (
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium text-gray-800">{order.vendorName}</p>
+                  <p className="text-xs text-gray-400">Handling this order</p>
+                </div>
+                <span className="text-xs bg-orange-100 text-orange-600 px-2 py-1 rounded-full font-semibold">Assigned</span>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-400 mb-3">No vendor assigned yet</p>
+            )}
+            {vendors.length > 0 && (
+              <div className="relative mt-3">
+                <select
+                  disabled={assigningVendor}
+                  defaultValue=""
+                  onChange={e => e.target.value && assignVendor(e.target.value)}
+                  className="w-full appearance-none border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-orange-400 disabled:opacity-50 cursor-pointer"
+                >
+                  <option value="">— {order.vendorName ? 'Reassign vendor' : 'Assign vendor'} —</option>
+                  {vendors.map(v => (
+                    <option key={v.id} value={v.id}>{v.name} · {v.area || 'No area'}</option>
+                  ))}
+                </select>
+                <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              </div>
+            )}
+          </div>
+
+          {/* Rider */}
+          <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+            <div className="flex items-center gap-2 mb-3">
+              <Bike size={16} className="text-blue-500" />
+              <h3 className="font-semibold text-gray-800">Delivery Rider</h3>
+            </div>
+            {order.riderName ? (
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium text-gray-800">{order.riderName}</p>
+                  <p className="text-xs text-gray-400">Assigned for delivery</p>
+                </div>
+                <span className="text-xs bg-blue-100 text-blue-600 px-2 py-1 rounded-full font-semibold">Assigned</span>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-400 mb-3">No rider assigned yet</p>
+            )}
+            {riders.length > 0 && (
+              <div className="relative mt-3">
+                <select
+                  disabled={assigningRider}
+                  defaultValue=""
+                  onChange={e => e.target.value && assignRider(e.target.value)}
+                  className="w-full appearance-none border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:opacity-50 cursor-pointer"
+                >
+                  <option value="">— {order.riderName ? 'Reassign rider' : 'Assign rider'} —</option>
+                  {riders.map(r => (
+                    <option key={r.id} value={r.id}>{r.name} · {r.area || 'No area'}</option>
+                  ))}
+                </select>
+                <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              </div>
+            )}
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           {/* Customer info */}
           <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 space-y-4">
@@ -178,12 +285,18 @@ export default function OrderDetailPage({ params }) {
             <div className="bg-gray-50 rounded-xl p-4 space-y-2">
               <div className="flex justify-between text-sm text-gray-600">
                 <span>Subtotal</span>
-                <span>₹{order.total?.toLocaleString('en-IN') || 0}</span>
+                <span>₹{(order.subtotal ?? (order.total - (order.deliveryFee ?? 30) + (order.discount ?? 0)))?.toLocaleString('en-IN') || 0}</span>
               </div>
               <div className="flex justify-between text-sm text-gray-600">
-                <span>Delivery</span>
-                <span className="text-green-600">Free</span>
+                <span>Delivery Fee</span>
+                <span>₹{(order.deliveryFee ?? 30).toLocaleString('en-IN')}</span>
               </div>
+              {(order.discount > 0) && (
+                <div className="flex justify-between text-sm text-green-600">
+                  <span>Discount</span>
+                  <span>-₹{order.discount?.toLocaleString('en-IN')}</span>
+                </div>
+              )}
               <div className="border-t border-gray-200 pt-2 flex justify-between font-bold text-gray-900">
                 <span>Total</span>
                 <span>₹{order.total?.toLocaleString('en-IN') || 0}</span>
