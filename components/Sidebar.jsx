@@ -5,22 +5,24 @@ import { adminLogout, getAdminUser } from '@/lib/auth';
 import {
   LayoutDashboard, ShoppingBag, Package, Grid3X3,
   UserCheck, Image, BarChart3, MessageCircle, Wrench,
-  LogOut, X, Tag, Handshake
+  LogOut, X, Tag, Handshake, Bike, Store, Users
 } from 'lucide-react';
 import clsx from 'clsx';
 
 const NAV = [
-  { href: '/dashboard',     label: 'Dashboard',     icon: LayoutDashboard, group: 'main' },
-  { href: '/orders',        label: 'Orders',         icon: ShoppingBag,     group: 'main' },
-  { href: '/products',      label: 'Products',       icon: Package,         group: 'main' },
-  { href: '/categories',    label: 'Categories',     icon: Grid3X3,         group: 'main' },
-  { href: '/users',         label: 'App Users',      icon: UserCheck,       group: 'engage' },
-  { href: '/requests',      label: 'Requests',       icon: MessageCircle,   group: 'engage' },
-  { href: '/home-services', label: 'Home Services',  icon: Wrench,          group: 'engage' },
-  { href: '/promo-codes',   label: 'Promo Codes',    icon: Tag,             group: 'engage' },
-  { href: '/partners',      label: 'Partners',       icon: Handshake,       group: 'engage' },
-  { href: '/banners',       label: 'Banners',        icon: Image,           group: 'engage' },
-  { href: '/reports',       label: 'Reports',        icon: BarChart3,       group: 'reports' },
+  { href: '/dashboard',     label: 'Dashboard',       icon: LayoutDashboard, group: 'main'     },
+  { href: '/orders',        label: 'Orders',           icon: ShoppingBag,     group: 'main'     },
+  { href: '/products',      label: 'Products',         icon: Package,         group: 'main'     },
+  { href: '/categories',    label: 'Categories',       icon: Grid3X3,         group: 'main'     },
+  { href: '/users',         label: 'App Users',        icon: UserCheck,       group: 'engage'   },
+  { href: '/requests',      label: 'Requests',         icon: MessageCircle,   group: 'engage'   },
+  { href: '/home-services', label: 'Home Services',    icon: Wrench,          group: 'engage'   },
+  { href: '/promo-codes',   label: 'Promo Codes',      icon: Tag,             group: 'engage'   },
+  { href: '/banners',       label: 'Banners',          icon: Image,           group: 'engage'   },
+  { href: '/partners',      label: 'Applications',     icon: Handshake,       group: 'partners' },
+  { href: '/riders',        label: 'Riders',           icon: Bike,            group: 'partners' },
+  { href: '/vendors',       label: 'Vendors',          icon: Store,           group: 'partners' },
+  { href: '/reports',       label: 'Reports',          icon: BarChart3,       group: 'reports'  },
 ];
 
 export default function Sidebar({ open, onClose }) {
@@ -104,6 +106,31 @@ export default function Sidebar({ open, onClose }) {
           <p className="px-3 pt-4 pb-2 text-[10px] font-semibold tracking-widest uppercase"
             style={{ color: 'rgba(255,255,255,0.25)' }}>Engage</p>
           {NAV.filter(n => n.group === 'engage').map(({ href, label, icon: Icon }) => {
+            const active = pathname === href || pathname.startsWith(href + '/');
+            return (
+              <Link key={href} href={href} onClick={onClose}
+                className={clsx(
+                  'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all',
+                  active ? 'text-white' : 'text-gray-400 hover:text-white'
+                )}
+                style={active ? {
+                  background: 'linear-gradient(135deg, rgba(249,115,22,0.25) 0%, rgba(234,88,12,0.15) 100%)',
+                  border: '1px solid rgba(249,115,22,0.3)',
+                  boxShadow: '0 0 12px rgba(249,115,22,0.1)',
+                } : { background: 'transparent', border: '1px solid transparent' }}>
+                <Icon size={16} style={{ color: active ? '#f97316' : undefined }} />
+                <span className="flex-1">{label}</span>
+                {active && (
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#f97316', display: 'block', flexShrink: 0 }} />
+                )}
+              </Link>
+            );
+          })}
+
+          {/* Group: Partners */}
+          <p className="px-3 pt-4 pb-2 text-[10px] font-semibold tracking-widest uppercase"
+            style={{ color: 'rgba(255,255,255,0.25)' }}>Partners</p>
+          {NAV.filter(n => n.group === 'partners').map(({ href, label, icon: Icon }) => {
             const active = pathname === href || pathname.startsWith(href + '/');
             return (
               <Link key={href} href={href} onClick={onClose}

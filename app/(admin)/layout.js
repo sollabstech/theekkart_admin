@@ -17,6 +17,8 @@ const PAGE_TITLES = {
   '/home-services': 'Home Services',
   '/promo-codes':   'Promo Codes',
   '/partners':      'Partner Applications',
+  '/riders':        'Rider Management',
+  '/vendors':       'Vendor Management',
   '/banners':       'Banners & Offers',
   '/notifications': 'Notifications',
   '/reports':       'Reports',

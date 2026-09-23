@@ -503,6 +503,7 @@ function OrdersContent() {
                     <th className="text-left px-5 py-3">Amount</th>
                     <th className="text-left px-5 py-3">Payment</th>
                     <th className="text-left px-5 py-3">Status</th>
+                    <th className="text-left px-5 py-3">Vendor / Rider</th>
                     <th className="text-left px-5 py-3">Time</th>
                     <th className="text-left px-5 py-3"></th>
                   </tr>
@@ -536,6 +537,21 @@ function OrdersContent() {
                         </span>
                       </td>
                       <td className="px-5 py-3"><StatusBadge status={order.status} /></td>
+                      <td className="px-5 py-3 text-xs">
+                        {order.vendorName && (
+                          <div className="flex items-center gap-1 text-orange-600 mb-0.5">
+                            <span>🏪</span> {order.vendorName}
+                          </div>
+                        )}
+                        {order.riderName && (
+                          <div className="flex items-center gap-1 text-blue-600">
+                            <span>🛵</span> {order.riderName}
+                          </div>
+                        )}
+                        {!order.vendorName && !order.riderName && (
+                          <span className="text-gray-300">—</span>
+                        )}
+                      </td>
                       <td className="px-5 py-3 text-gray-400 text-xs whitespace-nowrap">
                         {formatTimestamp(order.createdAt)}
                       </td>
