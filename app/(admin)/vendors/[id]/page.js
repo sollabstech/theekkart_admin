@@ -5,7 +5,7 @@ import Image from 'next/image';
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '@/lib/firebase';
 import {
-  getPartnerById, getVendorProducts, getVendorOrders,
+  getPartnerById, getVendorProducts, getVendorOrders, syncVendorOrders,
   addProduct, updateProduct, deleteProduct, getCategories,
   updatePartner, formatTimestamp,
 } from '@/lib/firestore';
@@ -14,7 +14,7 @@ import {
   IndianRupee, TrendingUp, Calendar, Globe, CreditCard, Clock,
   Plus, Pencil, Trash2, ToggleLeft, ToggleRight, Search,
   ImagePlus, X, Star, CheckCircle, XCircle, PauseCircle,
-  PlayCircle, Tag, Building, FileText, User,
+  PlayCircle, Tag, Building, FileText, User, RefreshCw,
 } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 
@@ -148,17 +148,20 @@ export default function VendorDetailPage({ params }) {
   const [saving,     setSaving]     = useState(false);
   const [uploading,  setUploading]  = useState(null);
   const [pSearch,    setPSearch]    = useState('');
+  const [syncing,    setSyncing]    = useState(false);
   const fileRef = useState(() => ({ current: null }))[0];
   const slotRef = useState(0);
 
   useEffect(() => {
-    Promise.all([getPartnerById(id), getVendorProducts(id), getVendorOrders(id), getCategories()]).then(([v, p, o, c]) => {
-      setVendor(v);
-      setProducts(p);
-      setOrders(o);
-      setCategories(c);
-      setLoading(false);
-    });
+    Promise.all([getPartnerById(id), getVendorProducts(id), getVendorOrders(id), getCategories()])
+      .then(([v, p, o, c]) => {
+        setVendor(v);
+        setProducts(p);
+        setOrders(o);
+        setCategories(c);
+      })
+      .catch(err => console.error('Vendor detail load error:', err))
+      .finally(() => setLoading(false));
   }, [id]);
 
   // ── Stats ──────────────────────────────────────────────────────────────────
@@ -238,6 +241,21 @@ export default function VendorDetailPage({ params }) {
     setProducts(prev => prev.map(x => x.id === p.id ? { ...x, available: !x.available } : x));
     try { await updateProduct(p.id, { available: !p.available }); }
     catch { setProducts(prev => prev.map(x => x.id === p.id ? { ...x, available: p.available } : x)); }
+  }
+
+  async function handleSyncOrders() {
+    setSyncing(true);
+    try {
+      const count = await syncVendorOrders(id);
+      if (count > 0) {
+        const fresh = await getVendorOrders(id);
+        setOrders(fresh);
+        toast.success(`Synced ${count} order${count !== 1 ? 's' : ''} to this vendor`);
+      } else {
+        toast.success('All orders already up to date');
+      }
+    } catch { toast.error('Sync failed'); }
+    setSyncing(false);
   }
 
   // ── Vendor actions ──────────────────────────────────────────────────────────
@@ -455,11 +473,19 @@ export default function VendorDetailPage({ params }) {
 
         {/* ── Orders Tab ── */}
         {tab === 'Orders' && (
+          <div className="space-y-3">
+            <div className="flex justify-end">
+              <button onClick={handleSyncOrders} disabled={syncing}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-xl border border-orange-200 text-orange-600 hover:bg-orange-50 disabled:opacity-50 transition-colors">
+                <RefreshCw size={13} className={syncing ? 'animate-spin' : ''}/>
+                {syncing ? 'Syncing...' : 'Sync Old Orders'}
+              </button>
+            </div>
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
             {orders.length === 0 ? (
               <div className="p-16 text-center">
                 <ShoppingBag size={40} className="mx-auto text-gray-200 mb-3"/>
-                <p className="text-gray-400">No orders yet</p>
+                <p className="text-gray-400">No orders yet. Use &quot;Sync Old Orders&quot; if orders were placed before this was set up.</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -504,6 +530,7 @@ export default function VendorDetailPage({ params }) {
                 </table>
               </div>
             )}
+          </div>
           </div>
         )}
 

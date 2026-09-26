@@ -366,6 +366,9 @@ function OrdersContent() {
     return () => unsub();
   }, []);
 
+  // Admin orders only — orders for vendor products are tracked under their vendor, not here
+  const adminOrders = orders.filter(o => !o.vendorId);
+
   function matchesCustomer(o) {
     if (filterEmail) return (o.customerEmail || '').trim().toLowerCase() === filterEmail;
     if (filterUid)   return o.customerId === filterUid;
@@ -373,7 +376,7 @@ function OrdersContent() {
     return true;
   }
 
-  const filtered = orders.filter(o => {
+  const filtered = adminOrders.filter(o => {
     const matchTab    = tab === 'all'
       ? true
       : tab === 'active'
@@ -391,7 +394,7 @@ function OrdersContent() {
 
   const isFiltered   = filterEmail || filterUid || filterName;
   const customerName = isFiltered
-    ? (orders.find(o => matchesCustomer(o))?.customerName || filterName || filterEmail || 'Customer')
+    ? (adminOrders.find(o => matchesCustomer(o))?.customerName || filterName || filterEmail || 'Customer')
     : null;
 
   // Filename & title for download
@@ -457,10 +460,10 @@ function OrdersContent() {
       <div className="flex gap-2 overflow-x-auto pb-1">
         {STATUS_TABS.map(t => {
           const count = t.key === 'all'
-            ? orders.filter(o => matchesCustomer(o)).length
+            ? adminOrders.filter(o => matchesCustomer(o)).length
             : t.key === 'active'
-              ? orders.filter(o => ACTIVE_STATUSES.includes(o.status) && matchesCustomer(o)).length
-              : orders.filter(o => o.status === t.key && matchesCustomer(o)).length;
+              ? adminOrders.filter(o => ACTIVE_STATUSES.includes(o.status) && matchesCustomer(o)).length
+              : adminOrders.filter(o => o.status === t.key && matchesCustomer(o)).length;
           return (
             <button key={t.key} onClick={() => setTab(t.key)}
               className={`flex-shrink-0 px-4 py-2 rounded-xl text-sm font-medium transition-colors ${

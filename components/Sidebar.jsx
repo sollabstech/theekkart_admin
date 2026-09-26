@@ -5,7 +5,7 @@ import { adminLogout, getAdminUser } from '@/lib/auth';
 import {
   LayoutDashboard, ShoppingBag, Package, Grid3X3,
   UserCheck, Image, BarChart3, MessageCircle, Wrench,
-  LogOut, X, Tag, Handshake, Bike, Store, Users
+  LogOut, X, Tag, Bike, Store, Users
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -19,7 +19,6 @@ const NAV = [
   { href: '/home-services', label: 'Home Services',    icon: Wrench,          group: 'engage'   },
   { href: '/promo-codes',   label: 'Promo Codes',      icon: Tag,             group: 'engage'   },
   { href: '/banners',       label: 'Banners',          icon: Image,           group: 'engage'   },
-  { href: '/partners',      label: 'Applications',     icon: Handshake,       group: 'partners' },
   { href: '/riders',        label: 'Riders',           icon: Bike,            group: 'partners' },
   { href: '/vendors',       label: 'Vendors',          icon: Store,           group: 'partners' },
   { href: '/reports',       label: 'Reports',          icon: BarChart3,       group: 'reports'  },
