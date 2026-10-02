@@ -6,7 +6,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { formatTimestamp } from '@/lib/firestore';
-import { Phone, Clock, CheckCircle, RefreshCw, Plus, Pencil, Trash2, EyeOff, Eye, XCircle } from 'lucide-react';
+import { Phone, Clock, CheckCircle, RefreshCw, Plus, Pencil, Trash2, EyeOff, Eye, XCircle, MapPin, User } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 
 const ICON_OPTIONS = [
@@ -71,8 +71,37 @@ function RequestCard({ r, onMarkDone, onMarkPending, onReject }) {
               {statusBadge}
             </div>
             <p className="text-sm text-gray-700 mt-2 leading-relaxed">{r.description}</p>
+            {r.problem && (
+              <p className="text-xs text-gray-500 mt-1">Issue: {r.problem}</p>
+            )}
             {r.preferredTime && (
               <p className="text-xs text-gray-400 mt-1 flex items-center gap-1"><Clock size={11} /> {r.preferredTime}</p>
+            )}
+            {r.address?.address && (
+              <p className="text-xs text-gray-500 mt-1 flex items-start gap-1">
+                <MapPin size={11} className="mt-0.5 flex-shrink-0" />
+                <span>
+                  {r.address.address}{r.address.landmark ? ` (Landmark: ${r.address.landmark})` : ''}{r.address.pincode ? ` · PIN ${r.address.pincode}` : ''}
+                  {r.address.lat != null && r.address.lng != null && (
+                    <> · <a href={`https://www.google.com/maps?q=${r.address.lat},${r.address.lng}`} target="_blank" rel="noreferrer" className="text-orange-500 hover:text-orange-600 font-medium">Open in Maps</a></>
+                  )}
+                </span>
+              </p>
+            )}
+            {r.providerName && (
+              <p className="text-xs text-gray-500 mt-1 flex items-center gap-1"><User size={11} /> Requested: {r.providerName}</p>
+            )}
+            {r.requestNumber && (
+              <p className="text-xs text-gray-400 mt-1">Request #{r.requestNumber}{r.isCustom ? ' · Custom service' : ''}</p>
+            )}
+            {Array.isArray(r.photos) && r.photos.length > 0 && (
+              <div className="flex gap-2 mt-2 flex-wrap">
+                {r.photos.map((url, i) => (
+                  <a key={i} href={url} target="_blank" rel="noreferrer">
+                    <img src={url} alt="" className="w-14 h-14 rounded-xl object-cover border border-gray-100" />
+                  </a>
+                ))}
+              </div>
             )}
           </div>
         </div>
