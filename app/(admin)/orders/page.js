@@ -2,6 +2,7 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { listenToOrders, ORDER_STATUS, formatTimestamp, addOrder, getProducts } from '@/lib/firestore';
+import { triggerOrderEvent } from '@/app/actions/orderEvents';
 import { downloadExcel, downloadPDF } from '@/lib/download';
 import StatusBadge from '@/components/StatusBadge';
 import Link from 'next/link';
@@ -167,7 +168,7 @@ function AddOrderModal({ onClose, onSaved }) {
     const orderNum = `TK${Date.now().toString().substring(7)}`;
     setSaving(true);
     try {
-      await addOrder({
+      const ref = await addOrder({
         orderNumber:   orderNum,
         customerId:    '',
         customerEmail: '',
@@ -185,6 +186,7 @@ function AddOrderModal({ onClose, onSaved }) {
         status:        'received',
         source:        'admin',
       });
+      triggerOrderEvent(ref.id, 'order_created').catch(() => {});
       toast.success(`Order #${orderNum} created — ${items.length} item${items.length !== 1 ? 's' : ''}`);
       onSaved();
     } catch {

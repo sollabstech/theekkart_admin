@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { use } from 'react';
 import { getOrder, updateOrderStatus, updateOrderFields, getApprovedPartners, ORDER_STATUS, STATUS_LABELS, formatTimestamp } from '@/lib/firestore';
+import { triggerOrderEvent } from '@/app/actions/orderEvents';
 import StatusBadge from '@/components/StatusBadge';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
@@ -46,6 +47,8 @@ export default function OrderDetailPage({ params }) {
     try {
       await updateOrderFields(id, { vendorId, vendorName: vendor.name, status: 'confirmed' });
       setOrder(prev => ({ ...prev, vendorId, vendorName: vendor.name, status: 'confirmed' }));
+      triggerOrderEvent(id, 'vendor_assigned').catch(() => {});
+      triggerOrderEvent(id, 'status_changed').catch(() => {});
       toast.success(`Assigned to vendor: ${vendor.name}`);
     } catch { toast.error('Failed to assign vendor'); }
     setAssigningVendor(false);
@@ -58,6 +61,7 @@ export default function OrderDetailPage({ params }) {
     try {
       await updateOrderFields(id, { riderId, riderName: rider.name });
       setOrder(prev => ({ ...prev, riderId, riderName: rider.name }));
+      triggerOrderEvent(id, 'rider_assigned').catch(() => {});
       toast.success(`Assigned to rider: ${rider.name}`);
     } catch { toast.error('Failed to assign rider'); }
     setAssigningRider(false);
@@ -68,34 +72,8 @@ export default function OrderDetailPage({ params }) {
     try {
       await updateOrderStatus(id, newStatus);
       setOrder(prev => ({ ...prev, status: newStatus }));
+      triggerOrderEvent(id, 'status_changed').catch(() => {});
       toast.success(`Status updated to ${STATUS_LABELS[newStatus]}`);
-
-      // Push FCM notification to customer
-      if (order.customerId) {
-        try {
-          const { getDoc, doc } = await import('firebase/firestore');
-          const { db } = await import('@/lib/firebase');
-          const userSnap = await getDoc(doc(db, 'users', order.customerId));
-          const fcmToken = userSnap.data()?.fcmToken;
-          if (fcmToken) {
-            const msgMap = {
-              confirmed:        { title: '✅ Order Confirmed!',       body: 'Your order is confirmed and being prepared.' },
-              preparing:        { title: '👨‍🍳 Preparing Your Order',  body: 'Our team is preparing your order.' },
-              out_for_delivery: { title: '🚴 Out for Delivery!',      body: 'Your order is on the way! Get ready.' },
-              delivered:        { title: '🎉 Order Delivered!',       body: 'Your order has been delivered. Enjoy!' },
-              cancelled:        { title: '❌ Order Cancelled',         body: 'Your order has been cancelled. Contact us for help.' },
-            };
-            const msg = msgMap[newStatus];
-            if (msg) {
-              await fetch('/api/notify', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ token: fcmToken, ...msg }),
-              });
-            }
-          }
-        } catch (_) {}
-      }
     } catch (err) {
       toast.error('Failed to update status');
     }
