@@ -133,6 +133,12 @@ export default function OrderDetailPage({ params }) {
             </div>
             <StatusBadge status={order.status} />
           </div>
+          {order.status === ORDER_STATUS.CANCELLED && order.rejectReason && (
+            <div className="mt-4 bg-red-50 border border-red-100 rounded-xl p-3">
+              <p className="text-xs font-semibold text-red-700 mb-0.5">Reason</p>
+              <p className="text-sm text-red-600">{order.rejectReason}</p>
+            </div>
+          )}
         </div>
 
         {/* Status stepper */}
@@ -231,7 +237,9 @@ export default function OrderDetailPage({ params }) {
                 >
                   <option value="">— {order.riderName ? 'Reassign rider' : 'Assign rider'} —</option>
                   {riders.map(r => (
-                    <option key={r.id} value={r.id}>{r.name} · {r.area || 'No area'}</option>
+                    <option key={r.id} value={r.id}>
+                      {r.available === false ? '⚪ Offline' : '🟢 Online'} · {r.name} · {r.area || 'No area'}
+                    </option>
                   ))}
                 </select>
                 <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />

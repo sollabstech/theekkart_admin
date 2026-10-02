@@ -5,7 +5,7 @@ import { adminLogout, getAdminUser } from '@/lib/auth';
 import {
   LayoutDashboard, ShoppingBag, Package, Grid3X3,
   UserCheck, Image, BarChart3, MessageCircle, Wrench,
-  LogOut, X, Tag, Bike, Store, Users
+  LogOut, X, Tag, Bike, Store, Users, Bell, Handshake
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -15,12 +15,15 @@ const NAV = [
   { href: '/products',      label: 'Products',         icon: Package,         group: 'main'     },
   { href: '/categories',    label: 'Categories',       icon: Grid3X3,         group: 'main'     },
   { href: '/users',         label: 'App Users',        icon: UserCheck,       group: 'engage'   },
+  { href: '/customers',     label: 'Customers',        icon: Users,           group: 'engage'   },
   { href: '/requests',      label: 'Requests',         icon: MessageCircle,   group: 'engage'   },
   { href: '/home-services', label: 'Home Services',    icon: Wrench,          group: 'engage'   },
   { href: '/promo-codes',   label: 'Promo Codes',      icon: Tag,             group: 'engage'   },
   { href: '/banners',       label: 'Banners',          icon: Image,           group: 'engage'   },
+  { href: '/notifications', label: 'Notifications',    icon: Bell,            group: 'engage'   },
   { href: '/riders',        label: 'Riders',           icon: Bike,            group: 'partners' },
   { href: '/vendors',       label: 'Vendors',          icon: Store,           group: 'partners' },
+  { href: '/partners',      label: 'All Partners',     icon: Handshake,       group: 'partners' },
   { href: '/reports',       label: 'Reports',          icon: BarChart3,       group: 'reports'  },
 ];
 
