@@ -1,22 +1,6 @@
 import { NextResponse } from 'next/server';
-import { initializeApp, getApps, cert } from 'firebase-admin/app';
+import { getAdminApp } from '@/lib/firebaseAdmin';
 import { getMessaging } from 'firebase-admin/messaging';
-
-// Lazily initialize the Admin SDK from a service-account JSON stored as a
-// server-only env var. Never prefix this with NEXT_PUBLIC_ — it must not
-// reach the client bundle.
-function getAdminApp() {
-  if (getApps().length) return getApps()[0];
-  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
-  if (!raw) return null;
-  let serviceAccount;
-  try {
-    serviceAccount = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  return initializeApp({ credential: cert(serviceAccount) });
-}
 
 // POST /api/notify
 // Body: { token?, tokens?, title, body, data? }  (unchanged — existing callers
