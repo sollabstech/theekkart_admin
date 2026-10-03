@@ -120,7 +120,9 @@ export default function OrderDetailPage({ params }) {
     if (!rider) return;
     setAssigningRider(true);
     try {
-      const pickup = vendorLabel ? { name: vendorLabel, address: vendorDoc?.shopAddress || vendorDoc?.address || '' } : null;
+      const pickup = vendorLabel
+        ? { name: vendorLabel, address: vendorDoc?.shopAddress || vendorDoc?.address || order.pickupAddress || '', lat: shopPoint?.lat ?? null, lng: shopPoint?.lng ?? null }
+        : null;
       await assignRiderTx(db, { orderId: id, riderId, riderName: rider.name, adminId, pickup });
       afterChange(['rider_assigned']);
       toast.success(`Assigned to rider: ${rider.name}`);
