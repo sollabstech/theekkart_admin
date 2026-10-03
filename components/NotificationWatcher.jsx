@@ -63,10 +63,14 @@ export default function NotificationWatcher() {
       Notification.requestPermission();
     }
 
-    function show(title, body, { urgent = false, tag } = {}) {
+    function show(title, body, { urgent = false, tag, url } = {}) {
       beep(urgent);
       if (Notification.permission !== 'granted') return;
-      try { new Notification(title, { body, icon: '/favicon.ico', tag }); } catch (_) {}
+      try {
+        const n = new Notification(title, { body, icon: '/favicon.ico', tag });
+        // Tapping an order alert opens that order.
+        if (url) n.onclick = () => { window.focus(); window.location.assign(url); n.close(); };
+      } catch (_) {}
     }
 
     function watch(collectionName, handler) {
@@ -108,7 +112,7 @@ export default function NotificationWatcher() {
           alerted.add(key);
           show('🛒 New Order!',
             `${o.customerName || 'Customer'} placed ${orderNo(o, id)} — ₹${o.total || 0}${o.vendorId ? '' : ' (needs a vendor)'}`,
-            { urgent: !o.vendorId, tag: key });
+            { urgent: !o.vendorId, tag: key, url: `/orders/${id}` });
           return;
         }
         if (change.type !== 'modified') return;
@@ -118,13 +122,13 @@ export default function NotificationWatcher() {
           alerted.add(key);
           show('📦 Ready for pickup — assign a rider',
             `${orderNo(o, id)}${o.vendorName ? ` from ${o.vendorName}` : ''} is ready and has no rider`,
-            { urgent: true, tag: key });
+            { urgent: true, tag: key, url: `/orders/${id}` });
         } else if (actor === 'rider' && RIDER_STATUSES.has(status)) {
           alerted.add(key);
-          show(`🛵 ${STATUS_LABELS[status]}`, `${orderNo(o, id)}${o.riderName ? ` · ${o.riderName}` : ''}`, { tag: key });
+          show(`🛵 ${STATUS_LABELS[status]}`, `${orderNo(o, id)}${o.riderName ? ` · ${o.riderName}` : ''}`, { tag: key, url: `/orders/${id}` });
         } else if (status === ORDER_STATUS.CANCELLED && actor !== 'admin') {
           alerted.add(key);
-          show('❌ Order cancelled', `${orderNo(o, id)} was cancelled by the ${actor || 'shop'}${o.rejectReason ? `: ${o.rejectReason}` : ''}`, { urgent: true, tag: key });
+          show('❌ Order cancelled', `${orderNo(o, id)} was cancelled by the ${actor || 'shop'}${o.rejectReason ? `: ${o.rejectReason}` : ''}`, { urgent: true, tag: key, url: `/orders/${id}` });
         }
       });
     });
