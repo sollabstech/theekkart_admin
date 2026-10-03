@@ -8,7 +8,7 @@ import { ORDER_STATUS, STATUS_LABELS, effectiveStatus, needsRider, needsVendor }
 // notification + a short beep) when something needs the admin:
 //   • a new order arrives (extra text if it has no vendor yet)
 //   • an order becomes Ready for Pickup with no rider  → "assign a rider"
-//   • a rider moves an order (going to pickup / picked up / out / delivered)
+//   • a rider (or the shop) moves an order (going to pickup / picked up / out / delivered)
 //   • an order is cancelled by the shop or the rider
 // It also publishes the "needs rider / needs vendor" counts for the sidebar
 // badge. Alerts only work while an admin tab is open.
@@ -123,9 +123,13 @@ export default function NotificationWatcher() {
           show('📦 Ready for pickup — assign a rider',
             `${orderNo(o, id)}${o.vendorName ? ` from ${o.vendorName}` : ''} is ready and has no rider`,
             { urgent: true, tag: key, url: `/orders/${id}` });
-        } else if (actor === 'rider' && RIDER_STATUSES.has(status)) {
+        } else if ((actor === 'rider' || actor === 'vendor') && RIDER_STATUSES.has(status)) {
+          // delivery steps are normally the rider's; the shop can carry the order on too
           alerted.add(key);
-          show(`🛵 ${STATUS_LABELS[status]}`, `${orderNo(o, id)}${o.riderName ? ` · ${o.riderName}` : ''}`, { tag: key, url: `/orders/${id}` });
+          const byShop = actor === 'vendor';
+          show(`${byShop ? '🏪' : '🛵'} ${STATUS_LABELS[status]}`,
+            `${orderNo(o, id)}${byShop ? (o.vendorName ? ` · by ${o.vendorName}` : ' · by the shop') : (o.riderName ? ` · ${o.riderName}` : '')}`,
+            { tag: key, url: `/orders/${id}` });
         } else if (status === ORDER_STATUS.CANCELLED && actor !== 'admin') {
           alerted.add(key);
           show('❌ Order cancelled', `${orderNo(o, id)} was cancelled by the ${actor || 'shop'}${o.rejectReason ? `: ${o.rejectReason}` : ''}`, { urgent: true, tag: key, url: `/orders/${id}` });
