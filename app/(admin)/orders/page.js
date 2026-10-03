@@ -2,9 +2,8 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { listenToOrders, listenToPartnersByRole, formatTimestamp, addOrder, getProducts } from '@/lib/firestore';
-import {
-  ORDER_STATUS, STATUS_FLOW, STATUS_LABELS, effectiveStatus, statusLabel, isActiveOrder, needsRider, needsVendor,
-} from '@/lib/orderStatus';
+import { statusLabel, needsRider, needsVendor } from '@/lib/orderStatus';
+import { STATUS_TABS, matchesTab, withVendorNames } from '@/lib/orderView';
 import { agoText } from '@/lib/geo';
 import { triggerOrderEvent } from '@/app/actions/orderEvents';
 import { downloadExcel, downloadPDF } from '@/lib/download';
@@ -12,24 +11,6 @@ import StatusBadge from '@/components/StatusBadge';
 import Link from 'next/link';
 import { Search, Eye, X, FileSpreadsheet, FileText, Plus, Minus } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
-
-// One tab per status (shared labels), plus the two "needs attention" filters.
-const STATUS_TABS = [
-  { key: 'all',          label: 'All' },
-  { key: 'needs_vendor', label: 'Needs vendor', alert: true },
-  { key: 'needs_rider',  label: 'Needs rider',  alert: true },
-  { key: 'active',       label: 'In Progress' },
-  ...STATUS_FLOW.map(s => ({ key: s, label: STATUS_LABELS[s] })),
-  { key: ORDER_STATUS.CANCELLED, label: STATUS_LABELS[ORDER_STATUS.CANCELLED] },
-];
-
-function matchesTab(order, tab) {
-  if (tab === 'all') return true;
-  if (tab === 'needs_vendor') return needsVendor(order);
-  if (tab === 'needs_rider') return needsRider(order);
-  if (tab === 'active') return isActiveOrder(order) && effectiveStatus(order) !== ORDER_STATUS.RECEIVED;
-  return effectiveStatus(order) === tab;
-}
 
 // PDF column definitions
 const PDF_COLS = [
@@ -386,10 +367,7 @@ function OrdersContent() {
   // Every order is listed (including ones that already have a vendor). The
   // vendor name comes from the order when it has one, else from the vendor's
   // own profile, so a fresh customer order already shows its shop.
-  const vendorNameById = Object.fromEntries(vendors.map(v => [v.id, v.shopName || v.name]));
-  const adminOrders = orders.map(o => (
-    o.vendorName || !o.vendorId ? o : { ...o, vendorName: vendorNameById[o.vendorId] || '' }
-  ));
+  const adminOrders = withVendorNames(orders, vendors);
 
   function matchesCustomer(o) {
     if (filterEmail) return (o.customerEmail || '').trim().toLowerCase() === filterEmail;
