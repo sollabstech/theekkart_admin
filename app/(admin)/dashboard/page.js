@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { listenToOrders, ORDER_STATUS, formatTimestamp } from '@/lib/firestore';
+import { listenToOrders, formatTimestamp } from '@/lib/firestore';
+import { ORDER_STATUS, effectiveStatus, isActiveOrder } from '@/lib/orderStatus';
 import StatusBadge from '@/components/StatusBadge';
 import Link from 'next/link';
 import {
@@ -57,8 +58,9 @@ export default function DashboardPage() {
   }, []);
 
   const counts = {
-    new:       orders.filter(o => o.status === ORDER_STATUS.RECEIVED).length,
-    active:    orders.filter(o => [ORDER_STATUS.CONFIRMED, ORDER_STATUS.PREPARING, ORDER_STATUS.OUT_FOR_DELIVERY].includes(o.status)).length,
+    new:       orders.filter(o => effectiveStatus(o) === ORDER_STATUS.RECEIVED).length,
+    // everything between Accepted and Delivered, incl. picked_up and the new rider steps
+    active:    orders.filter(o => isActiveOrder(o) && effectiveStatus(o) !== ORDER_STATUS.RECEIVED).length,
     delivered: orders.filter(o => o.status === ORDER_STATUS.DELIVERED).length,
     cancelled: orders.filter(o => o.status === ORDER_STATUS.CANCELLED).length,
   };
@@ -201,7 +203,7 @@ export default function DashboardPage() {
                     <td className="px-5 py-3.5">
                       <span className="font-bold text-gray-900">₹{order.total?.toLocaleString('en-IN') || 0}</span>
                     </td>
-                    <td className="px-5 py-3.5"><StatusBadge status={order.status} /></td>
+                    <td className="px-5 py-3.5"><StatusBadge order={order} /></td>
                     <td className="px-5 py-3.5 text-xs text-gray-400">{formatTimestamp(order.createdAt)}</td>
                   </tr>
                 ))}

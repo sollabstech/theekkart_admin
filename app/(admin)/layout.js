@@ -18,6 +18,7 @@ const PAGE_TITLES = {
   '/promo-codes':   'Promo Codes',
   '/partners':      'Partner Applications',
   '/riders':        'Rider Management',
+  '/live-map':      'Live Riders Map',
   '/vendors':       'Vendor Management',
   '/banners':       'Banners & Offers',
   '/notifications': 'Notifications',

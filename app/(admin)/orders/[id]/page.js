@@ -1,56 +1,117 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { use } from 'react';
-import { getOrder, updateOrderStatus, updateOrderFields, getApprovedPartners, ORDER_STATUS, STATUS_LABELS, formatTimestamp } from '@/lib/firestore';
+import { listenToOrder, listenToPartnersByRole, listenToRiderLocations, formatTimestamp } from '@/lib/firestore';
+import { db } from '@/lib/firebase';
+import { getAdminUser } from '@/lib/auth';
+import {
+  ORDER_STATUS, STATUS_FLOW, STATUS_LABELS, ROLES, effectiveStatus, isBackward, isTerminal, needsRider, needsVendor,
+} from '@/lib/orderStatus';
+import { changeOrderStatus, assignRider as assignRiderTx, assignVendor as assignVendorTx, sharePickupLocation } from '@/lib/orderTransitions';
+import {
+  agoText, customerCoords, distanceKm, formatDistance, pickupCoords, shopCoords, STALE_AFTER_MS, toMillis, addressParts,
+} from '@/lib/geo';
 import { triggerOrderEvent } from '@/app/actions/orderEvents';
 import StatusBadge from '@/components/StatusBadge';
+import LiveMap from '@/components/LiveMap';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
-import { ArrowLeft, Phone, MapPin, Clock, Package, CreditCard, MessageSquare, Store, Bike, ChevronDown } from 'lucide-react';
+import { ArrowLeft, Phone, MapPin, Clock, Package, CreditCard, MessageSquare, Store, Bike, ChevronDown, Navigation, History } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
-
-const STATUS_FLOW = [
-  ORDER_STATUS.RECEIVED,
-  ORDER_STATUS.CONFIRMED,
-  ORDER_STATUS.PREPARING,
-  ORDER_STATUS.OUT_FOR_DELIVERY,
-  ORDER_STATUS.DELIVERED,
-];
 
 export default function OrderDetailPage({ params }) {
   const { id } = use(params);
   const [order,    setOrder]    = useState(null);
   const [loading,  setLoading]  = useState(true);
   const [updating, setUpdating] = useState(false);
-  const [partners, setPartners] = useState([]);
+  const [vendors,  setVendors]  = useState([]);
+  const [riders,   setRiders]   = useState([]);
+  const [riderLocs, setRiderLocs] = useState({});
   const [assigningVendor, setAssigningVendor] = useState(false);
   const [assigningRider,  setAssigningRider]  = useState(false);
+  const [sharing,  setSharing]  = useState(false);
+  const [now,      setNow]      = useState(() => Date.now());
 
+  // Everything on this page is LIVE: the order, the partner lists (rider
+  // Online/Offline) and rider GPS — a status change made on a phone shows up
+  // here without a refresh.
   useEffect(() => {
-    getApprovedPartners().then(setPartners);
-  }, []);
-
-  const vendors = partners.filter(p => p.role === 'vendor');
-  const riders  = partners.filter(p => p.role === 'rider');
-
-  useEffect(() => {
-    getOrder(id).then(data => {
-      setOrder(data);
-      setLoading(false);
-    });
+    const unsubOrder = listenToOrder(
+      id,
+      data => { setOrder(data); setLoading(false); },
+      () => { setLoading(false); toast.error('Lost connection to the order — retrying…'); }
+    );
+    const unsubV = listenToPartnersByRole('vendor', list => setVendors(list.filter(p => p.status === 'approved')));
+    const unsubR = listenToPartnersByRole('rider',  list => setRiders(list.filter(p => p.status === 'approved')));
+    const unsubL = listenToRiderLocations(setRiderLocs);
+    const tick = setInterval(() => setNow(Date.now()), 10000);
+    return () => { unsubOrder(); unsubV(); unsubR(); unsubL(); clearInterval(tick); };
   }, [id]);
+
+  const adminId = getAdminUser();
+  const vendorDoc = useMemo(() => vendors.find(v => v.id === order?.vendorId) || null, [vendors, order?.vendorId]);
+  const vendorLabel = order?.vendorName || vendorDoc?.shopName || vendorDoc?.name || '';
+  const shopPoint = shopCoords(vendorDoc) || pickupCoords(order);
+
+  // Riders sorted: online first, then nearest to the shop.
+  const riderOptions = useMemo(() => {
+    return riders.map(r => {
+      const loc = riderLocs[r.id];
+      const km = loc && shopPoint ? distanceKm(shopPoint, { lat: Number(loc.lat), lng: Number(loc.lng) }) : null;
+      return { ...r, km, online: r.available !== false };
+    }).sort((a, b) => {
+      if (a.online !== b.online) return a.online ? -1 : 1;
+      if (a.km !== null && b.km !== null) return a.km - b.km;
+      if (a.km !== null) return -1;
+      if (b.km !== null) return 1;
+      return (a.name || '').localeCompare(b.name || '');
+    });
+  }, [riders, riderLocs, shopPoint]);
+
+  const nameFor = (role, byId) => {
+    if (role === ROLES.ADMIN) return byId || 'Admin';
+    const list = role === ROLES.VENDOR ? vendors : riders;
+    const p = list.find(x => x.id === byId);
+    return p ? (p.shopName || p.name) : '';
+  };
+
+  async function afterChange(events) {
+    // Notifications run in the background; they never block or fail the change.
+    events.forEach(ev => triggerOrderEvent(id, ev).catch(() => {}));
+  }
+
+  async function changeStatus(newStatus) {
+    const from = effectiveStatus(order);
+    let extra = {};
+    if (newStatus === ORDER_STATUS.CANCELLED) {
+      const reason = window.prompt('Cancel this order? Enter a reason (optional) and press OK.', '');
+      if (reason === null) return;
+      if (reason.trim()) extra = { rejectReason: reason.trim() };
+    } else if (isBackward(from, newStatus)) {
+      const ok = window.confirm(`Move this order BACK from "${STATUS_LABELS[from]}" to "${STATUS_LABELS[newStatus]}"?\n\nThe customer, shop and rider will see the earlier status.`);
+      if (!ok) return;
+    }
+    setUpdating(true);
+    try {
+      await changeOrderStatus(db, { orderId: id, to: newStatus, role: ROLES.ADMIN, actorId: adminId, extra, allowBackward: true });
+      afterChange(['status_changed']);
+      toast.success(`Status updated to ${STATUS_LABELS[newStatus]}`);
+    } catch (err) {
+      toast.error(err?.message || 'Failed to update status');
+    }
+    setUpdating(false);
+  }
 
   async function assignVendor(vendorId) {
     const vendor = vendors.find(v => v.id === vendorId);
     if (!vendor) return;
+    const name = vendor.shopName || vendor.name;
     setAssigningVendor(true);
     try {
-      await updateOrderFields(id, { vendorId, vendorName: vendor.name, status: 'confirmed' });
-      setOrder(prev => ({ ...prev, vendorId, vendorName: vendor.name, status: 'confirmed' }));
-      triggerOrderEvent(id, 'vendor_assigned').catch(() => {});
-      triggerOrderEvent(id, 'status_changed').catch(() => {});
-      toast.success(`Assigned to vendor: ${vendor.name}`);
-    } catch { toast.error('Failed to assign vendor'); }
+      await assignVendorTx(db, { orderId: id, vendorId, vendorName: name, adminId });
+      afterChange(['vendor_assigned']); // vendor gets a "New order" push; status is left alone
+      toast.success(`Assigned to vendor: ${name}`);
+    } catch (err) { toast.error(err?.message || 'Failed to assign vendor'); }
     setAssigningVendor(false);
   }
 
@@ -59,25 +120,27 @@ export default function OrderDetailPage({ params }) {
     if (!rider) return;
     setAssigningRider(true);
     try {
-      await updateOrderFields(id, { riderId, riderName: rider.name });
-      setOrder(prev => ({ ...prev, riderId, riderName: rider.name }));
-      triggerOrderEvent(id, 'rider_assigned').catch(() => {});
+      const pickup = vendorLabel ? { name: vendorLabel, address: vendorDoc?.shopAddress || vendorDoc?.address || '' } : null;
+      await assignRiderTx(db, { orderId: id, riderId, riderName: rider.name, adminId, pickup });
+      afterChange(['rider_assigned']);
       toast.success(`Assigned to rider: ${rider.name}`);
-    } catch { toast.error('Failed to assign rider'); }
+    } catch (err) { toast.error(err?.message || 'Failed to assign rider'); }
     setAssigningRider(false);
   }
 
-  async function changeStatus(newStatus) {
-    setUpdating(true);
+  async function sendShopLocation() {
+    if (!shopPoint) return;
+    setSharing(true);
     try {
-      await updateOrderStatus(id, newStatus);
-      setOrder(prev => ({ ...prev, status: newStatus }));
-      triggerOrderEvent(id, 'status_changed').catch(() => {});
-      toast.success(`Status updated to ${STATUS_LABELS[newStatus]}`);
-    } catch (err) {
-      toast.error('Failed to update status');
-    }
-    setUpdating(false);
+      await sharePickupLocation(db, {
+        orderId: id,
+        location: { lat: shopPoint.lat, lng: shopPoint.lng, address: vendorDoc?.shopAddress || vendorDoc?.address || order.pickupAddress || '', name: vendorLabel },
+        adminId,
+      });
+      afterChange(['pickup_location_shared']);
+      toast.success('Shop location sent to the rider');
+    } catch (err) { toast.error(err?.message || 'Failed to send location'); }
+    setSharing(false);
   }
 
   if (loading) return (
@@ -87,7 +150,33 @@ export default function OrderDetailPage({ params }) {
     <div className="text-center py-16 text-gray-400">Order not found</div>
   );
 
-  const currentStatusIdx = STATUS_FLOW.indexOf(order.status);
+  const current = effectiveStatus(order);
+  const currentIdx = STATUS_FLOW.indexOf(current);
+  const closed = isTerminal(order.status);
+  const addr = addressParts(order);
+
+  // History timeline (oldest → newest). Orders placed before the new flow have
+  // no first "received" entry, so one is synthesised from createdAt.
+  const history = Array.isArray(order.statusHistory) ? order.statusHistory : [];
+  const timeline = [
+    ...(history[0]?.status === ORDER_STATUS.RECEIVED ? [] : [{ status: ORDER_STATUS.RECEIVED, by: 'customer', at: order.createdAt, note: 'Order placed' }]),
+    ...history,
+  ];
+
+  // Map markers: shop, customer, and the assigned rider's live position.
+  const loc = order.riderId ? riderLocs[order.riderId] : null;
+  const riderStale = loc ? now - toMillis(loc.updatedAt) > STALE_AFTER_MS : false;
+  const customerPoint = customerCoords(order);
+  const markers = [];
+  if (shopPoint) markers.push({ id: 'shop', kind: 'shop', ...shopPoint, label: vendorLabel || 'Shop', popup: [vendorLabel || 'Shop', order.pickupAddress || vendorDoc?.shopAddress || ''] });
+  if (customerPoint) markers.push({ id: 'customer', kind: 'customer', ...customerPoint, label: 'Customer', popup: [order.customerName || 'Customer', addr.text] });
+  if (loc && Number.isFinite(Number(loc.lat)) && Number.isFinite(Number(loc.lng))) {
+    markers.push({
+      id: 'rider', kind: riderStale ? 'rider-stale' : 'rider', lat: Number(loc.lat), lng: Number(loc.lng),
+      label: order.riderName || 'Rider',
+      popup: [order.riderName || 'Rider', `Updated ${agoText(loc.updatedAt, now)}`],
+    });
+  }
 
   return (
     <>
@@ -107,9 +196,14 @@ export default function OrderDetailPage({ params }) {
               </h2>
               <p className="text-sm text-gray-400 flex items-center gap-1 mt-1">
                 <Clock size={13} /> {formatTimestamp(order.createdAt)}
+                <span className="mx-1">·</span> Updated {agoText(order.updatedAt || order.createdAt, now)}
               </p>
             </div>
-            <StatusBadge status={order.status} />
+            <div className="flex items-center gap-2 flex-wrap">
+              {needsVendor(order) && <span className="text-xs bg-red-100 text-red-600 px-2 py-1 rounded-full font-semibold">Needs vendor</span>}
+              {needsRider(order) && <span className="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded-full font-semibold">Needs rider</span>}
+              <StatusBadge order={order} />
+            </div>
           </div>
           {order.status === ORDER_STATUS.CANCELLED && order.rejectReason && (
             <div className="mt-4 bg-red-50 border border-red-100 rounded-xl p-3">
@@ -127,12 +221,13 @@ export default function OrderDetailPage({ params }) {
               {STATUS_FLOW.map((s, i) => (
                 <button
                   key={s}
-                  disabled={updating || i <= currentStatusIdx}
+                  disabled={updating || i === currentIdx}
                   onClick={() => changeStatus(s)}
+                  title={i < currentIdx ? 'Move the order back (asks to confirm)' : undefined}
                   className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors border ${
-                    i < currentStatusIdx
-                      ? 'bg-gray-50 text-gray-300 border-gray-100 cursor-default'
-                      : i === currentStatusIdx
+                    i < currentIdx
+                      ? 'bg-gray-50 text-gray-400 border-gray-100 hover:bg-gray-100'
+                      : i === currentIdx
                         ? 'bg-orange-500 text-white border-orange-500 cursor-default'
                         : 'bg-white text-gray-600 border-gray-200 hover:bg-orange-50 hover:border-orange-300 hover:text-orange-600'
                   }`}
@@ -141,7 +236,7 @@ export default function OrderDetailPage({ params }) {
                 </button>
               ))}
               <button
-                disabled={updating || order.status === ORDER_STATUS.CANCELLED || order.status === ORDER_STATUS.DELIVERED}
+                disabled={updating || closed}
                 onClick={() => changeStatus(ORDER_STATUS.CANCELLED)}
                 className="px-4 py-2 rounded-xl text-sm font-medium border bg-white text-red-500 border-red-200 hover:bg-red-50 disabled:opacity-40 disabled:cursor-default"
               >
@@ -159,28 +254,28 @@ export default function OrderDetailPage({ params }) {
               <Store size={16} className="text-orange-500" />
               <h3 className="font-semibold text-gray-800">Vendor</h3>
             </div>
-            {order.vendorName ? (
+            {vendorLabel ? (
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="font-medium text-gray-800">{order.vendorName}</p>
+                  <p className="font-medium text-gray-800">{vendorLabel}</p>
                   <p className="text-xs text-gray-400">Handling this order</p>
                 </div>
                 <span className="text-xs bg-orange-100 text-orange-600 px-2 py-1 rounded-full font-semibold">Assigned</span>
               </div>
             ) : (
-              <p className="text-sm text-gray-400 mb-3">No vendor assigned yet</p>
+              <p className="text-sm text-red-500 font-medium mb-3">Needs vendor — no shop attached yet</p>
             )}
-            {vendors.length > 0 && (
+            {vendors.length > 0 && !closed && (
               <div className="relative mt-3">
                 <select
                   disabled={assigningVendor}
-                  defaultValue=""
+                  value=""
                   onChange={e => e.target.value && assignVendor(e.target.value)}
                   className="w-full appearance-none border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-orange-400 disabled:opacity-50 cursor-pointer"
                 >
-                  <option value="">— {order.vendorName ? 'Reassign vendor' : 'Assign vendor'} —</option>
+                  <option value="">— {vendorLabel ? 'Reassign vendor' : 'Assign vendor'} —</option>
                   {vendors.map(v => (
-                    <option key={v.id} value={v.id}>{v.name} · {v.area || 'No area'}</option>
+                    <option key={v.id} value={v.id}>{v.shopName || v.name} · {v.area || 'No area'}</option>
                   ))}
                 </select>
                 <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
@@ -198,32 +293,73 @@ export default function OrderDetailPage({ params }) {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="font-medium text-gray-800">{order.riderName}</p>
-                  <p className="text-xs text-gray-400">Assigned for delivery</p>
+                  <p className="text-xs text-gray-400">
+                    Assigned for delivery{loc ? ` · location ${agoText(loc.updatedAt, now)}` : ''}
+                  </p>
                 </div>
                 <span className="text-xs bg-blue-100 text-blue-600 px-2 py-1 rounded-full font-semibold">Assigned</span>
               </div>
             ) : (
-              <p className="text-sm text-gray-400 mb-3">No rider assigned yet</p>
+              <p className={`text-sm mb-3 ${needsRider(order) ? 'text-amber-600 font-medium' : 'text-gray-400'}`}>
+                {needsRider(order) ? 'Needs rider — order is ready for pickup' : 'No rider assigned yet'}
+              </p>
             )}
-            {riders.length > 0 && (
+            {riderOptions.length > 0 && !closed && (
               <div className="relative mt-3">
                 <select
                   disabled={assigningRider}
-                  defaultValue=""
+                  value=""
                   onChange={e => e.target.value && assignRider(e.target.value)}
                   className="w-full appearance-none border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:opacity-50 cursor-pointer"
                 >
                   <option value="">— {order.riderName ? 'Reassign rider' : 'Assign rider'} —</option>
-                  {riders.map(r => (
+                  {riderOptions.map(r => (
                     <option key={r.id} value={r.id}>
-                      {r.available === false ? '⚪ Offline' : '🟢 Online'} · {r.name} · {r.area || 'No area'}
+                      {r.online ? '🟢 Online' : '⚪ Offline'} · {r.name} · {r.area || 'No area'}
+                      {r.km !== null ? ` · ${formatDistance(r.km)} from shop` : ''}
                     </option>
                   ))}
                 </select>
                 <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
               </div>
             )}
+
+            {/* Send the shop's location to the assigned rider */}
+            {order.riderId && !closed && (
+              <div className="mt-3">
+                <button
+                  onClick={sendShopLocation}
+                  disabled={sharing || !shopPoint}
+                  className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold border border-blue-200 text-blue-600 bg-blue-50 hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  <Navigation size={14} /> {sharing ? 'Sending…' : 'Send shop location to rider'}
+                </button>
+                {!shopPoint && (
+                  <p className="text-xs text-gray-400 mt-1.5">This shop has no saved location yet — add it on the vendor&apos;s page.</p>
+                )}
+                {order.pickupLocation?.sharedAt && (
+                  <p className="text-xs text-green-600 mt-1.5">Shared with the rider {agoText(order.pickupLocation.sharedAt, now)}</p>
+                )}
+              </div>
+            )}
           </div>
+        </div>
+
+        {/* Live map: shop, customer and the rider */}
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+          <h3 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
+            <MapPin size={16} className="text-orange-500" /> Live Map
+          </h3>
+          {markers.length > 0 ? (
+            <>
+              <LiveMap markers={markers} height={320} fitKey={`${id}:${markers.map(m => m.id).join(',')}`} />
+              <p className="text-xs text-gray-400 mt-2">
+                🏪 shop · 🏠 customer · 🛵 rider{riderStale ? ' (grey = no update for over 2 minutes)' : ''}
+              </p>
+            </>
+          ) : (
+            <p className="text-sm text-gray-400">No locations to show yet — the shop location, the customer&apos;s pin and the rider&apos;s GPS appear here once they are known.</p>
+          )}
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -241,12 +377,12 @@ export default function OrderDetailPage({ params }) {
               <div className="flex items-start gap-3">
                 <MapPin size={16} className="text-orange-500 mt-0.5 flex-shrink-0" />
                 <div>
-                  <p className="text-sm text-gray-700">{order.address?.address}</p>
-                  {order.address?.landmark && (
-                    <p className="text-xs text-gray-400">Landmark: {order.address.landmark}</p>
+                  <p className="text-sm text-gray-700">{addr.text}</p>
+                  {addr.landmark && (
+                    <p className="text-xs text-gray-400">Landmark: {addr.landmark}</p>
                   )}
-                  {order.address?.pincode && (
-                    <p className="text-xs text-gray-400">PIN: {order.address.pincode}</p>
+                  {addr.pincode && (
+                    <p className="text-xs text-gray-400">PIN: {addr.pincode}</p>
                   )}
                 </div>
               </div>
@@ -308,6 +444,30 @@ export default function OrderDetailPage({ params }) {
               </div>
             ))}
           </div>
+        </div>
+
+        {/* Status history */}
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+          <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+            <History size={18} className="text-orange-500" /> Status History
+          </h3>
+          <ol className="relative border-l border-gray-200 ml-2 space-y-4">
+            {timeline.map((h, i) => {
+              const who = h.by === 'customer' ? 'Customer' : [h.by, nameFor(h.by, h.byId)].filter(Boolean).join(' · ');
+              return (
+                <li key={i} className="ml-4">
+                  <span className="absolute -left-1.5 mt-1.5 h-3 w-3 rounded-full bg-orange-400 border-2 border-white" />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusBadge status={h.status} />
+                    <span className="text-xs text-gray-400">{formatTimestamp(h.at)}</span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    {who}{h.note ? ` — ${h.note}` : ''}
+                  </p>
+                </li>
+              );
+            })}
+          </ol>
         </div>
       </div>
     </>

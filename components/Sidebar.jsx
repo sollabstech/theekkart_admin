@@ -1,11 +1,13 @@
 'use client';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { adminLogout, getAdminUser } from '@/lib/auth';
+import { ATTENTION_EVENT } from '@/components/NotificationWatcher';
 import {
   LayoutDashboard, ShoppingBag, Package, Grid3X3,
   UserCheck, Image, BarChart3, MessageCircle, Wrench,
-  LogOut, X, Tag, Bike, Store, Users, Bell, Handshake
+  LogOut, X, Tag, Bike, Store, Users, Bell, Handshake, MapPin
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -22,6 +24,7 @@ const NAV = [
   { href: '/banners',       label: 'Banners',          icon: Image,           group: 'engage'   },
   { href: '/notifications', label: 'Notifications',    icon: Bell,            group: 'engage'   },
   { href: '/riders',        label: 'Riders',           icon: Bike,            group: 'partners' },
+  { href: '/live-map',      label: 'Live Map',         icon: MapPin,          group: 'partners' },
   { href: '/vendors',       label: 'Vendors',          icon: Store,           group: 'partners' },
   { href: '/partners',      label: 'All Partners',     icon: Handshake,       group: 'partners' },
   { href: '/reports',       label: 'Reports',          icon: BarChart3,       group: 'reports'  },
@@ -30,6 +33,16 @@ const NAV = [
 export default function Sidebar({ open, onClose }) {
   const pathname = usePathname();
   const router = useRouter();
+
+  // "Needs rider" / "Needs vendor" counts published by NotificationWatcher.
+  const [attention, setAttention] = useState({ needsRider: 0, needsVendor: 0 });
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.__tkAttention) setAttention(window.__tkAttention);
+    const onChange = e => setAttention(e.detail || { needsRider: 0, needsVendor: 0 });
+    window.addEventListener(ATTENTION_EVENT, onChange);
+    return () => window.removeEventListener(ATTENTION_EVENT, onChange);
+  }, []);
+  const orderAlerts = attention.needsRider + attention.needsVendor;
 
   function logout() {
     adminLogout();
@@ -97,6 +110,12 @@ export default function Sidebar({ open, onClose }) {
                 } : { background: 'transparent', border: '1px solid transparent' }}>
                 <Icon size={16} style={{ color: active ? '#f97316' : undefined }} />
                 <span className="flex-1">{label}</span>
+                {href === '/orders' && orderAlerts > 0 && (
+                  <span title={`${attention.needsRider} need a rider · ${attention.needsVendor} need a vendor`}
+                    className="text-[10px] font-bold text-white bg-red-500 rounded-full px-1.5 py-0.5 leading-none">
+                    {attention.needsRider > 0 ? `${attention.needsRider} need rider` : `${orderAlerts}`}
+                  </span>
+                )}
                 {active && (
                   <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#f97316', display: 'block', flexShrink: 0 }} />
                 )}

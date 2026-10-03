@@ -1,7 +1,11 @@
 'use client';
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { listenToOrders, ORDER_STATUS, formatTimestamp, addOrder, getProducts } from '@/lib/firestore';
+import { listenToOrders, listenToPartnersByRole, formatTimestamp, addOrder, getProducts } from '@/lib/firestore';
+import {
+  ORDER_STATUS, STATUS_FLOW, STATUS_LABELS, effectiveStatus, statusLabel, isActiveOrder, needsRider, needsVendor,
+} from '@/lib/orderStatus';
+import { agoText } from '@/lib/geo';
 import { triggerOrderEvent } from '@/app/actions/orderEvents';
 import { downloadExcel, downloadPDF } from '@/lib/download';
 import StatusBadge from '@/components/StatusBadge';
@@ -9,18 +13,23 @@ import Link from 'next/link';
 import { Search, Eye, X, FileSpreadsheet, FileText, Plus, Minus } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 
+// One tab per status (shared labels), plus the two "needs attention" filters.
 const STATUS_TABS = [
-  { key: 'all',                           label: 'All' },
-  { key: ORDER_STATUS.RECEIVED,           label: 'New Orders' },
-  { key: 'active',                        label: 'In Progress' },
-  { key: ORDER_STATUS.CONFIRMED,          label: 'Confirmed' },
-  { key: ORDER_STATUS.PREPARING,          label: 'Preparing' },
-  { key: ORDER_STATUS.OUT_FOR_DELIVERY,   label: 'Out for Delivery' },
-  { key: ORDER_STATUS.DELIVERED,          label: 'Delivered' },
-  { key: ORDER_STATUS.CANCELLED,          label: 'Cancelled' },
+  { key: 'all',          label: 'All' },
+  { key: 'needs_vendor', label: 'Needs vendor', alert: true },
+  { key: 'needs_rider',  label: 'Needs rider',  alert: true },
+  { key: 'active',       label: 'In Progress' },
+  ...STATUS_FLOW.map(s => ({ key: s, label: STATUS_LABELS[s] })),
+  { key: ORDER_STATUS.CANCELLED, label: STATUS_LABELS[ORDER_STATUS.CANCELLED] },
 ];
 
-const ACTIVE_STATUSES = [ORDER_STATUS.CONFIRMED, ORDER_STATUS.PREPARING, ORDER_STATUS.OUT_FOR_DELIVERY];
+function matchesTab(order, tab) {
+  if (tab === 'all') return true;
+  if (tab === 'needs_vendor') return needsVendor(order);
+  if (tab === 'needs_rider') return needsRider(order);
+  if (tab === 'active') return isActiveOrder(order) && effectiveStatus(order) !== ORDER_STATUS.RECEIVED;
+  return effectiveStatus(order) === tab;
+}
 
 // PDF column definitions
 const PDF_COLS = [
@@ -43,7 +52,9 @@ function ordersToRows(orders) {
     'Items':         (o.items || []).length,
     'Amount (₹)':    o.total || 0,
     'Payment':       o.paymentMethod === 'upi' ? 'UPI' : 'COD',
-    'Status':        o.status || '—',
+    'Status':        statusLabel(o),
+    'Vendor':        o.vendorName || '—',
+    'Rider':         o.riderName || '—',
     'Time':          formatTimestamp(o.createdAt) || '—',
   }));
 }
@@ -58,7 +69,7 @@ function ordersToPDFRows(orders) {
     itemCount:    `${(o.items || []).length} item${(o.items||[]).length !== 1 ? 's' : ''}`,
     amount:       `₹${(o.total || 0).toLocaleString('en-IN')}`,
     payment:      o.paymentMethod === 'upi' ? 'UPI' : 'COD',
-    status:       o.status || '—',
+    status:       statusLabel(o),
     time:         formatTimestamp(o.createdAt) || '—',
   }));
 }
@@ -358,18 +369,27 @@ function OrdersContent() {
   const tabParam      = params.get('tab') || 'all';
 
   const [orders,      setOrders]      = useState([]);
+  const [vendors,     setVendors]     = useState([]);
   const [loading,     setLoading]     = useState(true);
   const [tab,         setTab]         = useState(tabParam);
   const [search,      setSearch]      = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [now,         setNow]         = useState(() => Date.now());
 
   useEffect(() => {
     const unsub = listenToOrders(data => { setOrders(data); setLoading(false); });
-    return () => unsub();
+    const unsubVendors = listenToPartnersByRole('vendor', setVendors);
+    const tick = setInterval(() => setNow(Date.now()), 15000); // keep "x min ago" fresh
+    return () => { unsub(); unsubVendors(); clearInterval(tick); };
   }, []);
 
-  // Admin orders only — orders for vendor products are tracked under their vendor, not here
-  const adminOrders = orders.filter(o => !o.vendorId);
+  // Every order is listed (including ones that already have a vendor). The
+  // vendor name comes from the order when it has one, else from the vendor's
+  // own profile, so a fresh customer order already shows its shop.
+  const vendorNameById = Object.fromEntries(vendors.map(v => [v.id, v.shopName || v.name]));
+  const adminOrders = orders.map(o => (
+    o.vendorName || !o.vendorId ? o : { ...o, vendorName: vendorNameById[o.vendorId] || '' }
+  ));
 
   function matchesCustomer(o) {
     if (filterEmail) return (o.customerEmail || '').trim().toLowerCase() === filterEmail;
@@ -379,16 +399,14 @@ function OrdersContent() {
   }
 
   const filtered = adminOrders.filter(o => {
-    const matchTab    = tab === 'all'
-      ? true
-      : tab === 'active'
-        ? ACTIVE_STATUSES.includes(o.status)
-        : o.status === tab;
+    const matchTab    = matchesTab(o, tab);
     const matchCust   = matchesCustomer(o);
     const q           = search.toLowerCase();
     const matchSearch = !q || (
       (o.customerName || '').toLowerCase().includes(q) ||
       (o.phone        || '').includes(q) ||
+      (o.vendorName   || '').toLowerCase().includes(q) ||
+      (o.riderName    || '').toLowerCase().includes(q) ||
       (o.orderNumber  || o.id || '').toLowerCase().includes(q)
     );
     return matchTab && matchSearch && matchCust;
@@ -438,7 +456,7 @@ function OrdersContent() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
             <input
               type="text"
-              placeholder="Search by name, phone, order ID…"
+              placeholder="Search by name, phone, shop, rider, order ID…"
               value={search}
               onChange={e => setSearch(e.target.value)}
               className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
@@ -461,17 +479,15 @@ function OrdersContent() {
       {/* Status tabs */}
       <div className="flex gap-2 overflow-x-auto pb-1">
         {STATUS_TABS.map(t => {
-          const count = t.key === 'all'
-            ? adminOrders.filter(o => matchesCustomer(o)).length
-            : t.key === 'active'
-              ? adminOrders.filter(o => ACTIVE_STATUSES.includes(o.status) && matchesCustomer(o)).length
-              : adminOrders.filter(o => o.status === t.key && matchesCustomer(o)).length;
+          const count = adminOrders.filter(o => matchesTab(o, t.key) && matchesCustomer(o)).length;
           return (
             <button key={t.key} onClick={() => setTab(t.key)}
               className={`flex-shrink-0 px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
                 tab === t.key
                   ? 'bg-orange-500 text-white shadow-sm'
-                  : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-100'
+                  : t.alert && count > 0
+                    ? 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-200'
+                    : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-100'
               }`}>
               {t.label} <span className="ml-1 opacity-70">({count})</span>
             </button>
@@ -510,6 +526,7 @@ function OrdersContent() {
                     <th className="text-left px-5 py-3">Status</th>
                     <th className="text-left px-5 py-3">Vendor / Rider</th>
                     <th className="text-left px-5 py-3">Time</th>
+                    <th className="text-left px-5 py-3">Last updated</th>
                     <th className="text-left px-5 py-3"></th>
                   </tr>
                 </thead>
@@ -541,7 +558,7 @@ function OrdersContent() {
                           {order.paymentMethod === 'upi' ? 'UPI' : 'COD'}
                         </span>
                       </td>
-                      <td className="px-5 py-3"><StatusBadge status={order.status} /></td>
+                      <td className="px-5 py-3"><StatusBadge order={order} /></td>
                       <td className="px-5 py-3 text-xs">
                         {order.vendorName && (
                           <div className="flex items-center gap-1 text-orange-600 mb-0.5">
@@ -553,12 +570,23 @@ function OrdersContent() {
                             <span>🛵</span> {order.riderName}
                           </div>
                         )}
-                        {!order.vendorName && !order.riderName && (
+                        {needsVendor(order) && (
+                          <span className="inline-block text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-semibold mb-0.5">Needs vendor</span>
+                        )}
+                        {needsRider(order) && (
+                          <div>
+                            <span className="inline-block text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-semibold">Needs rider</span>
+                          </div>
+                        )}
+                        {!order.vendorName && !order.riderName && !needsVendor(order) && !needsRider(order) && (
                           <span className="text-gray-300">—</span>
                         )}
                       </td>
                       <td className="px-5 py-3 text-gray-400 text-xs whitespace-nowrap">
                         {formatTimestamp(order.createdAt)}
+                      </td>
+                      <td className="px-5 py-3 text-gray-400 text-xs whitespace-nowrap">
+                        {agoText(order.updatedAt || order.createdAt, now)}
                       </td>
                       <td className="px-5 py-3">
                         <Link href={`/orders/${order.id}`}

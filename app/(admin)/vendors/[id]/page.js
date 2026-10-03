@@ -4,8 +4,10 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '@/lib/firebase';
+import StatusBadge from '@/components/StatusBadge';
+import { shopCoords } from '@/lib/geo';
 import {
-  getPartnerById, getVendorProducts, getVendorOrders, syncVendorOrders,
+  getPartnerById, getVendorProducts, listenToVendorOrders, syncVendorOrders,
   addProduct, updateProduct, deleteProduct, getCategories,
   updatePartner, formatTimestamp,
 } from '@/lib/firestore';
@@ -153,15 +155,21 @@ export default function VendorDetailPage({ params }) {
   const slotRef = useState(0);
 
   useEffect(() => {
-    Promise.all([getPartnerById(id), getVendorProducts(id), getVendorOrders(id), getCategories()])
-      .then(([v, p, o, c]) => {
+    Promise.all([getPartnerById(id), getVendorProducts(id), getCategories()])
+      .then(([v, p, c]) => {
         setVendor(v);
         setProducts(p);
-        setOrders(o);
         setCategories(c);
       })
       .catch(err => console.error('Vendor detail load error:', err))
       .finally(() => setLoading(false));
+  }, [id]);
+
+  // This shop's orders are LIVE — a status change made in the vendor/rider
+  // app shows here without a refresh.
+  useEffect(() => {
+    const unsub = listenToVendorOrders(id, setOrders);
+    return () => unsub();
   }, [id]);
 
   // ── Stats ──────────────────────────────────────────────────────────────────
@@ -248,8 +256,7 @@ export default function VendorDetailPage({ params }) {
     try {
       const count = await syncVendorOrders(id);
       if (count > 0) {
-        const fresh = await getVendorOrders(id);
-        setOrders(fresh);
+        // the live orders listener picks the patched orders up by itself
         toast.success(`Synced ${count} order${count !== 1 ? 's' : ''} to this vendor`);
       } else {
         toast.success('All orders already up to date');
@@ -375,8 +382,8 @@ export default function VendorDetailPage({ params }) {
               <InfoRow icon={MapPin}   label="Area"     value={vendor.area || vendor.district} />
               {vendor.state && <InfoRow icon={Globe}   label="State"    value={vendor.state} />}
               {vendor.pincode && <InfoRow icon={MapPin} label="Pincode" value={vendor.pincode} />}
-              {vendor.shopLocation?.lat && (
-                <InfoRow icon={Globe} label="GPS" value={`${vendor.shopLocation.lat.toFixed(5)}, ${vendor.shopLocation.lng.toFixed(5)}`} />
+              {shopCoords(vendor) && (
+                <InfoRow icon={Globe} label="GPS" value={`${shopCoords(vendor).lat.toFixed(5)}, ${shopCoords(vendor).lng.toFixed(5)}`} />
               )}
             </InfoCard>
             {/* Business */}
@@ -502,11 +509,6 @@ export default function VendorDetailPage({ params }) {
                   </thead>
                   <tbody>
                     {orders.map(o => {
-                      const statusColors = {
-                        received:'bg-blue-100 text-blue-700', confirmed:'bg-yellow-100 text-yellow-700',
-                        preparing:'bg-orange-100 text-orange-700', out_for_delivery:'bg-purple-100 text-purple-700',
-                        delivered:'bg-green-100 text-green-700', cancelled:'bg-red-100 text-red-700',
-                      };
                       return (
                         <tr key={o.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
                           <td className="px-4 py-3">
@@ -518,9 +520,7 @@ export default function VendorDetailPage({ params }) {
                           <td className="px-4 py-3 text-gray-500">{o.items?.length || 0} items</td>
                           <td className="px-4 py-3 font-semibold">₹{o.total?.toLocaleString('en-IN')}</td>
                           <td className="px-4 py-3">
-                            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statusColors[o.status] || 'bg-gray-100 text-gray-500'}`}>
-                              {o.status?.replace('_',' ')}
-                            </span>
+                            <StatusBadge order={o} />
                           </td>
                           <td className="px-4 py-3 text-gray-400 text-xs">{formatTimestamp(o.createdAt)}</td>
                         </tr>
@@ -570,17 +570,77 @@ export default function VendorDetailPage({ params }) {
                   <InfoRow icon={FileText}   label="IFSC"    value={vendor.bankDetails.ifsc} />
                 </InfoCard>
               )}
-              {vendor.shopLocation?.lat && (
-                <InfoCard title="Geolocation" icon={MapPin}>
-                  <InfoRow icon={MapPin} label="Latitude"  value={String(vendor.shopLocation.lat)} />
-                  <InfoRow icon={MapPin} label="Longitude" value={String(vendor.shopLocation.lng)} />
-                </InfoCard>
-              )}
+              <ShopLocationCard vendor={vendor} onSave={async (lat, lng) => {
+                await updatePartner(id, { shopLat: lat, shopLng: lng });
+                setVendor(v => ({ ...v, shopLat: lat, shopLng: lng }));
+                toast.success('Shop location saved');
+              }} />
             </div>
           </div>
         )}
       </div>
     </>
+  );
+}
+
+// ─── Shop location (admin override of what the vendor saved in their app) ───────
+function ShopLocationCard({ vendor, onSave }) {
+  const current = shopCoords(vendor);
+  const [lat, setLat] = useState(current ? String(current.lat) : '');
+  const [lng, setLng] = useState(current ? String(current.lng) : '');
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    const la = Number(lat), ln = Number(lng);
+    if (!Number.isFinite(la) || !Number.isFinite(ln) || Math.abs(la) > 90 || Math.abs(ln) > 180 || (la === 0 && ln === 0)) {
+      toast.error('Enter a valid latitude and longitude');
+      return;
+    }
+    setSaving(true);
+    try { await onSave(la, ln); } catch { toast.error('Failed to save location'); }
+    setSaving(false);
+  }
+
+  function useThisDevice() {
+    if (!navigator.geolocation) { toast.error('Location is not available in this browser'); return; }
+    navigator.geolocation.getCurrentPosition(
+      pos => { setLat(pos.coords.latitude.toFixed(6)); setLng(pos.coords.longitude.toFixed(6)); },
+      () => toast.error('Could not get this device\'s location'),
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+      <h3 className="font-semibold text-gray-800 mb-1 flex items-center gap-2"><MapPin size={16} className="text-orange-500"/> Shop Location</h3>
+      <p className="text-xs text-gray-400 mb-3">Used for rider distance, the live map and "Send shop location to rider". The vendor can also set it from their app.</p>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Latitude</label>
+          <input value={lat} onChange={e => setLat(e.target.value)} placeholder="9.925200" inputMode="decimal"
+            className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Longitude</label>
+          <input value={lng} onChange={e => setLng(e.target.value)} placeholder="78.119800" inputMode="decimal"
+            className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-2 mt-3">
+        <button onClick={save} disabled={saving}
+          className="px-4 py-2 rounded-xl text-sm font-semibold bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-50">
+          {saving ? 'Saving…' : 'Save location'}
+        </button>
+        <button onClick={useThisDevice}
+          className="px-4 py-2 rounded-xl text-sm font-medium border border-gray-200 text-gray-600 hover:bg-gray-50">
+          Use this device&apos;s location
+        </button>
+        {current && (
+          <a href={`https://www.google.com/maps?q=${current.lat},${current.lng}`} target="_blank" rel="noreferrer"
+            className="px-4 py-2 rounded-xl text-sm font-medium text-blue-600 hover:underline">Open in Maps</a>
+        )}
+      </div>
+    </div>
   );
 }
 

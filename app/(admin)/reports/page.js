@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { listenToOrders, ORDER_STATUS } from '@/lib/firestore';
+import { listenToOrders } from '@/lib/firestore';
+import { ORDER_STATUS, STATUS_LABELS, effectiveStatus } from '@/lib/orderStatus';
 import { TrendingUp, ShoppingBag, CheckCircle, XCircle, IndianRupee } from 'lucide-react';
 
 function groupByDate(orders) {
@@ -113,12 +114,17 @@ export default function ReportsPage() {
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
         <h2 className="font-semibold text-gray-800 mb-4">Order Status Breakdown</h2>
         {[
-          { status: ORDER_STATUS.DELIVERED, label: 'Delivered', color: 'bg-green-400' },
-          { status: ORDER_STATUS.CANCELLED, label: 'Cancelled', color: 'bg-red-400' },
-          { status: ORDER_STATUS.RECEIVED, label: 'Pending/New', color: 'bg-blue-400' },
-          { status: ORDER_STATUS.OUT_FOR_DELIVERY, label: 'Out for Delivery', color: 'bg-purple-400' },
-        ].map(s => {
-          const count = rangeOrders.filter(o => o.status === s.status).length;
+          { status: ORDER_STATUS.RECEIVED, color: 'bg-blue-400' },
+          { status: ORDER_STATUS.CONFIRMED, color: 'bg-yellow-400' },
+          { status: ORDER_STATUS.PREPARING, color: 'bg-orange-400' },
+          { status: ORDER_STATUS.READY_FOR_PICKUP, color: 'bg-teal-400' },
+          { status: ORDER_STATUS.GOING_TO_PICKUP, color: 'bg-cyan-400' },
+          { status: ORDER_STATUS.PICKED_UP, color: 'bg-indigo-400' },
+          { status: ORDER_STATUS.OUT_FOR_DELIVERY, color: 'bg-purple-400' },
+          { status: ORDER_STATUS.DELIVERED, color: 'bg-green-400' },
+          { status: ORDER_STATUS.CANCELLED, color: 'bg-red-400' },
+        ].map(s => ({ ...s, label: STATUS_LABELS[s.status] })).map(s => {
+          const count = rangeOrders.filter(o => effectiveStatus(o) === s.status).length;
           const pct = rangeOrders.length > 0 ? (count / rangeOrders.length) * 100 : 0;
           return (
             <div key={s.status} className="mb-3">
