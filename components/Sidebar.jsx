@@ -38,7 +38,7 @@ export default function Sidebar({ open, onClose }) {
   // Live counts published by NotificationWatcher
   const { counts } = useAlerts();
   const badges = {
-    '/orders': { n: counts.ordersTotal, title: `${counts.newOrders} new · ${counts.needsRider} need a rider · ${counts.needsVendor} need a vendor` },
+    '/orders': { n: counts.ordersTotal, title: `${counts.newOrders} new · ${counts.needsRider} need a rider` },
     '/requests': { n: counts.requests, title: `${counts.requests} pending request${counts.requests !== 1 ? 's' : ''} / issue${counts.requests !== 1 ? 's' : ''}` },
     '/home-services': { n: counts.services, title: `${counts.services} pending home service request${counts.services !== 1 ? 's' : ''}` },
   };

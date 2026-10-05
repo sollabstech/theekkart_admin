@@ -8,7 +8,7 @@ import { setCounts, pushAlert } from '@/lib/alertStore';
 
 // Watches Firestore in real-time and raises an instant alert (browser
 // notification + a short beep) when something needs the admin:
-//   • a new order arrives (extra text if it has no vendor yet)
+//   • a new order arrives
 //   • an order becomes Ready for Pickup with no rider  → "assign a rider"
 //   • a rider moves an order (going to pickup / picked up / out / delivered)
 //   • an order is cancelled by the shop or the rider
@@ -134,8 +134,8 @@ export default function NotificationWatcher() {
         if (change.type === 'added') {
           alerted.add(key);
           show('🛒 New Order!',
-            `${o.customerName || 'Customer'} placed ${orderNo(o, id)} — ₹${o.total || 0}${o.vendorId ? '' : ' (needs a vendor)'}`,
-            { urgent: !o.vendorId, tag: key, url: `/orders/${id}` });
+            `${o.customerName || 'Customer'} placed ${orderNo(o, id)} — ₹${o.total || 0}${o.vendorName ? ` from ${o.vendorName}` : ''}`,
+            { tag: key, url: `/orders/${id}` });
           return;
         }
         if (change.type !== 'modified') return;

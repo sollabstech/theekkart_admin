@@ -5,9 +5,9 @@ import { listenToOrder, listenToPartnersByRole, listenToRiderLocations, formatTi
 import { db } from '@/lib/firebase';
 import { getAdminUser } from '@/lib/auth';
 import {
-  ORDER_STATUS, STATUS_FLOW, STATUS_LABELS, ROLES, assignmentState, effectiveStatus, isBackward, isTerminal, needsRider, needsVendor,
+  ORDER_STATUS, STATUS_FLOW, STATUS_LABELS, ROLES, assignmentState, effectiveStatus, isBackward, isTerminal, needsRider,
 } from '@/lib/orderStatus';
-import { changeOrderStatus, assignRider as assignRiderTx, assignVendor as assignVendorTx, sharePickupLocation } from '@/lib/orderTransitions';
+import { changeOrderStatus, assignRider as assignRiderTx, sharePickupLocation } from '@/lib/orderTransitions';
 import {
   agoText, customerCoords, distanceKm, formatDistance, pickupCoords, shopCoords, STALE_AFTER_MS, toMillis, addressParts,
 } from '@/lib/geo';
@@ -27,7 +27,6 @@ export default function OrderDetailPage({ params }) {
   const [vendors,  setVendors]  = useState([]);
   const [riders,   setRiders]   = useState([]);
   const [riderLocs, setRiderLocs] = useState({});
-  const [assigningVendor, setAssigningVendor] = useState(false);
   const [assigningRider,  setAssigningRider]  = useState(false);
   const [sharing,  setSharing]  = useState(false);
   const [now,      setNow]      = useState(() => Date.now());
@@ -103,19 +102,6 @@ export default function OrderDetailPage({ params }) {
       toast.error(err?.message || 'Failed to update status');
     }
     setUpdating(false);
-  }
-
-  async function assignVendor(vendorId) {
-    const vendor = vendors.find(v => v.id === vendorId);
-    if (!vendor) return;
-    const name = vendor.shopName || vendor.name;
-    setAssigningVendor(true);
-    try {
-      await assignVendorTx(db, { orderId: id, vendorId, vendorName: name, adminId });
-      afterChange(['vendor_assigned']); // vendor gets a "New order" push; status is left alone
-      toast.success(`Assigned to vendor: ${name}`);
-    } catch (err) { toast.error(err?.message || 'Failed to assign vendor'); }
-    setAssigningVendor(false);
   }
 
   async function assignRider(riderId) {
@@ -205,7 +191,6 @@ export default function OrderDetailPage({ params }) {
               </p>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              {needsVendor(order) && <span className="text-xs bg-red-100 text-red-600 px-2 py-1 rounded-full font-semibold">Needs vendor</span>}
               {needsRider(order) && <span className="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded-full font-semibold">Needs rider</span>}
               <StatusBadge order={order} />
             </div>
@@ -251,7 +236,7 @@ export default function OrderDetailPage({ params }) {
           </div>
         )}
 
-        {/* Vendor & Rider assignment */}
+        {/* Store (chosen by the customer) & Rider assignment (the admin's only assignment) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
           {/* Vendor */}
           <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
@@ -263,28 +248,14 @@ export default function OrderDetailPage({ params }) {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="font-medium text-gray-800">{vendorLabel}</p>
-                  <p className="text-xs text-gray-400">Handling this order</p>
+                  <p className="text-xs text-gray-400">Chosen by the customer</p>
                 </div>
-                <span className="text-xs bg-orange-100 text-orange-600 px-2 py-1 rounded-full font-semibold">Assigned</span>
+                {vendorDoc?.rating > 0 && (
+                  <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-semibold">★ {Number(vendorDoc.rating).toFixed(1)}</span>
+                )}
               </div>
             ) : (
-              <p className="text-sm text-red-500 font-medium mb-3">Needs vendor — no shop attached yet</p>
-            )}
-            {vendors.length > 0 && !closed && (
-              <div className="relative mt-3">
-                <select
-                  disabled={assigningVendor}
-                  value=""
-                  onChange={e => e.target.value && assignVendor(e.target.value)}
-                  className="w-full appearance-none border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-orange-400 disabled:opacity-50 cursor-pointer"
-                >
-                  <option value="">— {vendorLabel ? 'Reassign vendor' : 'Assign vendor'} —</option>
-                  {vendors.map(v => (
-                    <option key={v.id} value={v.id}>{v.shopName || v.name} · {v.area || 'No area'}</option>
-                  ))}
-                </select>
-                <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-              </div>
+              <p className="text-sm text-gray-400">No shop recorded on this order</p>
             )}
           </div>
 

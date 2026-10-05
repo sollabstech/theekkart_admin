@@ -2,7 +2,8 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { listenToOrders, listenToPartnersByRole, formatTimestamp, addOrder, getProducts } from '@/lib/firestore';
-import { assignmentState, statusLabel, needsRider, needsVendor } from '@/lib/orderStatus';
+import { assignmentState, statusLabel, needsRider } from '@/lib/orderStatus';
+import { orderableStores, productsOfStore, buildManualOrder, storeName } from '@/lib/manualOrder';
 import { STATUS_TABS, matchesTab, withVendorNames } from '@/lib/orderView';
 import { agoText } from '@/lib/geo';
 import { triggerOrderEvent } from '@/app/actions/orderEvents';
@@ -93,6 +94,8 @@ function DownloadButtons({ data, filename, title, disabled }) {
 // ── Add Order Modal ───────────────────────────────────────────────────────────
 function AddOrderModal({ onClose, onSaved }) {
   const [products,      setProducts]      = useState([]);
+  const [stores,        setStores]        = useState([]);
+  const [storeId,       setStoreId]       = useState('');
   const [loadingProds,  setLoadingProds]  = useState(true);
   const [saving,        setSaving]        = useState(false);
   const [search,        setSearch]        = useState('');
@@ -111,10 +114,17 @@ function AddOrderModal({ onClose, onSaved }) {
 
   useEffect(() => {
     getProducts().then(p => {
-      setProducts(p.filter(pr => pr.available !== false));
+      setProducts(p);
       setLoadingProds(false);
     });
+    return listenToPartnersByRole('vendor', v => setStores(orderableStores(v)));
   }, []);
+
+  const store = stores.find(v => v.id === storeId) || null;
+  const storeProducts = productsOfStore(products, storeId);
+
+  // A different store has different products: start the basket again.
+  function chooseStore(id) { setStoreId(id); setSelectedQty({}); setSearch(''); }
 
   function setQty(id, qty) {
     setSelectedQty(prev => {
@@ -132,52 +142,26 @@ function AddOrderModal({ onClose, onSaved }) {
   const selectedCount = selectedIds.length;
 
   const total = selectedIds.reduce((sum, id) => {
-    const prod = products.find(p => p.id === id);
+    const prod = storeProducts.find(p => p.id === id);
     return sum + (prod ? prod.price * selectedQty[id] : 0);
   }, 0);
 
-  const visibleProducts = products.filter(p =>
+  const visibleProducts = storeProducts.filter(p =>
     !search || p.name?.toLowerCase().includes(search.toLowerCase())
   );
 
   async function handleSave() {
-    if (!name.trim())    return toast.error('Customer name is required');
-    if (!phone.trim())   return toast.error('Phone number is required');
-    if (!address.trim()) return toast.error('Delivery address is required');
-    if (selectedCount === 0) return toast.error('Select at least one product');
-
-    const items = selectedIds.map(id => {
-      const p = products.find(pr => pr.id === id);
-      return {
-        productId: id,
-        name:      p.name,
-        price:     p.price,
-        quantity:  selectedQty[id],
-        unit:      p.unit || '',
-      };
+    const built = buildManualOrder({
+      vendor: store, products, quantities: selectedQty,
+      customer: { name, phone, address, landmark, pincode }, payment, notes,
     });
-
-    const orderNum = `TK${Date.now().toString().substring(7)}`;
+    if (!built.ok) return toast.error(built.error);
+    const { order } = built;
+    const orderNum = order.orderNumber;
+    const items = order.items;
     setSaving(true);
     try {
-      const ref = await addOrder({
-        orderNumber:   orderNum,
-        customerId:    '',
-        customerEmail: '',
-        customerName:  name.trim(),
-        phone:         phone.trim(),
-        address: {
-          address:  address.trim(),
-          landmark: landmark.trim(),
-          pincode:  pincode.trim(),
-        },
-        items,            // item count = items.length, never hardcoded
-        total,
-        paymentMethod: payment,
-        notes:         notes.trim(),
-        status:        'received',
-        source:        'admin',
-      });
+      const ref = await addOrder(order);
       triggerOrderEvent(ref.id, 'order_created').catch(() => {});
       toast.success(`Order #${orderNum} created — ${items.length} item${items.length !== 1 ? 's' : ''}`);
       onSaved();
@@ -243,11 +227,24 @@ function AddOrderModal({ onClose, onSaved }) {
             </div>
           </div>
 
+          {/* Store: an order is always from one store the customer chose */}
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">Store *</h3>
+            <select value={storeId} onChange={e => chooseStore(e.target.value)}
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400">
+              <option value="">— Choose the store —</option>
+              {stores.map(v => (
+                <option key={v.id} value={v.id}>{storeName(v)}{v.businessCategory ? ` · ${v.businessCategory}` : ''}{v.area ? ` · ${v.area}` : ''}</option>
+              ))}
+            </select>
+            {store?.minOrder > 0 && <p className="text-xs text-gray-400 mt-1">Minimum order at this store: ₹{store.minOrder}</p>}
+          </div>
+
           {/* Product catalog picker */}
           <div>
             <h3 className="text-sm font-semibold text-gray-700 mb-1">Select Products</h3>
             <p className="text-xs text-gray-400 mb-3">
-              Each product you select becomes one line item. The order count equals the number of products selected.
+              {store ? `Products of ${storeName(store)}. ` : ''}Each product you select becomes one line item. The order count equals the number of products selected.
             </p>
             <input
               value={search} onChange={e => setSearch(e.target.value)}
@@ -256,10 +253,12 @@ function AddOrderModal({ onClose, onSaved }) {
 
             {loadingProds ? (
               <div className="py-8 text-center text-sm text-gray-400">Loading catalog…</div>
+            ) : !store ? (
+              <div className="py-8 text-center text-sm text-gray-400">Choose a store to see its products</div>
             ) : (
               <div className="max-h-64 overflow-y-auto rounded-xl border border-gray-100 divide-y divide-gray-50">
                 {visibleProducts.length === 0 ? (
-                  <div className="py-8 text-center text-sm text-gray-400">No products found</div>
+                  <div className="py-8 text-center text-sm text-gray-400">No products found in this store</div>
                 ) : visibleProducts.map(p => {
                   const qty = selectedQty[p.id] || 0;
                   const selected = qty > 0;
@@ -551,15 +550,12 @@ function OrdersContent() {
                             )}
                           </div>
                         )}
-                        {needsVendor(order) && (
-                          <span className="inline-block text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-semibold mb-0.5">Needs vendor</span>
-                        )}
                         {needsRider(order) && (
                           <div>
                             <span className="inline-block text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-semibold">Needs rider</span>
                           </div>
                         )}
-                        {!order.vendorName && !order.riderName && !needsVendor(order) && !needsRider(order) && (
+                        {!order.vendorName && !order.riderName && !needsRider(order) && (
                           <span className="text-gray-300">—</span>
                         )}
                       </td>

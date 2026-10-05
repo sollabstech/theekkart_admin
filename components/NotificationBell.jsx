@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Bell, ShoppingBag, MessageCircle, Wrench, Bike, Store, BellRing } from 'lucide-react';
+import { Bell, ShoppingBag, MessageCircle, Wrench, Bike, BellRing } from 'lucide-react';
 import { useAlerts, markAlertsRead } from '@/lib/alertStore';
 import { agoText } from '@/lib/geo';
 
@@ -28,7 +28,6 @@ export default function NotificationBell() {
   const rows = [
     { href: '/orders?tab=received', icon: ShoppingBag, label: 'New orders', n: counts.newOrders },
     { href: '/orders?tab=needs_rider', icon: Bike, label: 'Orders waiting for a rider', n: counts.needsRider },
-    { href: '/orders?tab=needs_vendor', icon: Store, label: 'Orders waiting for a vendor', n: counts.needsVendor },
     { href: '/requests', icon: MessageCircle, label: 'Requests & issues', n: counts.requests },
     { href: '/home-services', icon: Wrench, label: 'Home service requests', n: counts.services },
   ];
