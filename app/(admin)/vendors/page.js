@@ -11,9 +11,10 @@ import {
   Search, Store, Phone, Mail, MapPin, Package, ShoppingBag,
   TrendingUp, IndianRupee, CheckCircle, XCircle, PauseCircle,
   PlayCircle, Trash2, KeyRound, Eye, EyeOff, Copy, RefreshCw,
-  ChevronRight, Filter,
+  ChevronRight, Filter, Plus,
 } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
+import AddPartnerModal from '@/components/AddPartnerModal';
 
 const CATEGORIES = ['All','Grocery','Vegetables & Fruits','Dairy & Eggs','Bakery','Meat & Seafood','Snacks & Beverages','Pharmacy','Household','Other'];
 
@@ -200,6 +201,7 @@ export default function VendorsPage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [catFilter,    setCatFilter]    = useState('All');
   const [credModal,    setCredModal]    = useState(null);
+  const [addOpen,      setAddOpen]      = useState(false);
 
   useEffect(() => {
     const unsub = listenToPartnersByRole(['vendor', 'shop'], data => {
@@ -254,6 +256,15 @@ export default function VendorsPage() {
     <div className="space-y-6">
       <Toaster position="top-right" />
       {credModal && <CredModal vendor={credModal} onClose={() => setCredModal(null)} />}
+      {addOpen && <AddPartnerModal role="vendor" onClose={() => setAddOpen(false)} />}
+
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <p className="text-sm text-gray-500">Vendors apply from the app, or you can add one directly.</p>
+        <button onClick={() => setAddOpen(true)}
+          className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold bg-orange-500 text-white hover:bg-orange-600 transition-colors">
+          <Plus size={15} /> Add Vendor
+        </button>
+      </div>
 
       {/* Summary stats */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">

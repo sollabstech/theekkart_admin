@@ -1,8 +1,10 @@
 'use client';
 import { useEffect, useRef } from 'react';
-import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { collection, query, orderBy, limit, onSnapshot, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { ORDER_STATUS, STATUS_LABELS, effectiveStatus, needsRider, needsVendor } from '@/lib/orderStatus';
+import { ORDER_STATUS, STATUS_LABELS, effectiveStatus, needsRider } from '@/lib/orderStatus';
+import { computeAttention } from '@/lib/attention';
+import { setCounts, pushAlert } from '@/lib/alertStore';
 
 // Watches Firestore in real-time and raises an instant alert (browser
 // notification + a short beep) when something needs the admin:
@@ -10,11 +12,11 @@ import { ORDER_STATUS, STATUS_LABELS, effectiveStatus, needsRider, needsVendor }
 //   • an order becomes Ready for Pickup with no rider  → "assign a rider"
 //   • a rider (or the shop) moves an order (going to pickup / picked up / out / delivered)
 //   • an order is cancelled by the shop or the rider
-// It also publishes the "needs rider / needs vendor" counts for the sidebar
-// badge. Alerts only work while an admin tab is open.
+// It also publishes the live counts (orders / requests / home services) to
+// lib/alertStore.js for the sidebar badges and the header bell, and keeps the
+// bell's "recent alerts" feed. Alerts only work while an admin tab is open.
 // The first snapshot is always skipped (it's the current data, not new).
 
-export const ATTENTION_EVENT = 'tk-attention';
 
 const RIDER_STATUSES = new Set([
   ORDER_STATUS.GOING_TO_PICKUP, ORDER_STATUS.PICKED_UP, ORDER_STATUS.OUT_FOR_DELIVERY, ORDER_STATUS.DELIVERED,
@@ -64,6 +66,7 @@ export default function NotificationWatcher() {
     }
 
     function show(title, body, { urgent = false, tag, url } = {}) {
+      pushAlert({ title, body, url });
       beep(urgent);
       if (Notification.permission !== 'granted') return;
       try {
@@ -87,23 +90,41 @@ export default function NotificationWatcher() {
       });
     }
 
-    // Orders: new / ready-without-rider / rider progress / cancelled, + sidebar counts.
+    // Live counts for the sidebar badges and the bell
+    const latest = { orders: [], requests: [], issues: [], serviceRequests: [] };
+    const publishCounts = () => setCounts(computeAttention(latest));
+    const countPending = (name, key) => onSnapshot(
+      query(collection(db, name), where('status', '==', 'pending')),
+      snap => { latest[key] = snap.docs.map(d => ({ id: d.id, ...d.data() })); publishCounts(); },
+      () => {} // a failed count must never break the page
+    );
+
+    // Orders: new / ready-without-rider / rider progress / cancelled, + counts.
     let ordersReady = false;
     const alerted = new Set();
-    const ordersQ = query(collection(db, 'orders'), orderBy('createdAt', 'desc'), limit(150));
+    const known = new Map(); // order id → "status|rider|vendor" as last seen
+    const signature = o => `${effectiveStatus(o)}|${o.riderId || ''}|${o.vendorId || ''}`;
+    const ordersQ = query(collection(db, 'orders'), orderBy('createdAt', 'desc'), limit(300));
     const unsubOrders = onSnapshot(ordersQ, snap => {
       const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      window.__tkAttention = {
-        needsRider: all.filter(needsRider).length,
-        needsVendor: all.filter(needsVendor).length,
-      };
-      window.dispatchEvent(new CustomEvent(ATTENTION_EVENT, { detail: window.__tkAttention }));
+      latest.orders = all;
+      publishCounts();
 
-      if (!ordersReady) { ordersReady = true; return; } // skip initial load
+      if (!ordersReady) { // skip initial load, but remember what each order looked like
+        ordersReady = true;
+        all.forEach(o => known.set(o.id, signature(o)));
+        return;
+      }
       snap.docChanges().forEach(change => {
-        if (change.doc.metadata.hasPendingWrites) return; // our own optimistic write
         const o = change.doc.data();
         const id = change.doc.id;
+        const before = known.get(id);
+        if (change.type === 'removed') { known.delete(id); return; }
+        const now = signature(o);
+        known.set(id, now);
+        if (change.doc.metadata.hasPendingWrites) return; // our own optimistic write
+        // Only housekeeping fields changed (server "notifiedEvents", settlement stamp …): not news.
+        if (change.type === 'modified' && before === now) return;
         const status = effectiveStatus(o);
         const key = `${id}:${change.type}:${status}:${o.riderId || ''}`;
         if (alerted.has(key)) return;
@@ -139,6 +160,9 @@ export default function NotificationWatcher() {
 
     const unsubs = [
       unsubOrders,
+      countPending('requests', 'requests'),
+      countPending('issues', 'issues'),
+      countPending('service_requests', 'serviceRequests'),
       watch('requests', d =>
         show('💬 Ask TheekKart', `${d.customerName || 'Someone'}: ${(d.message || d.description || '').slice(0, 80)}`)
       ),

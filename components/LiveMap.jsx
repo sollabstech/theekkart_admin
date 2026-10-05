@@ -7,21 +7,27 @@ import 'leaflet/dist/leaflet.css';
 // while the admin is panning). Leaflet touches `window`, so it is imported
 // inside an effect.
 //
+// circle (optional): { lat, lng, radiusKm } drawn as a translucent area.
+// onMapClick (optional): called with (lat, lng) when the map is clicked.
 // markers: [{ id, lat, lng, kind: 'shop'|'customer'|'rider'|'rider-stale',
 //             label, popup: ['line 1', 'line 2', …] (plain text) }]
 const ICONS = {
   shop:         { emoji: '🏪', bg: '#f97316' },
   customer:     { emoji: '🏠', bg: '#16a34a' },
   rider:        { emoji: '🛵', bg: '#2563eb' },
+  center:       { emoji: '📍', bg: '#dc2626' },
   'rider-stale':{ emoji: '🛵', bg: '#9ca3af' },
 };
 
-export default function LiveMap({ markers, height = 380, fitKey = '' }) {
+export default function LiveMap({ markers, height = 380, fitKey = '', circle = null, onMapClick = null }) {
   const elRef = useRef(null);
   const mapRef = useRef(null);
   const leafletRef = useRef(null);
   const layerRef = useRef({}); // id -> marker
   const fittedFor = useRef(null);
+  const circleRef = useRef(null);
+  const clickRef = useRef(onMapClick);
+  clickRef.current = onMapClick;
 
   // create the map once
   useEffect(() => {
@@ -36,12 +42,14 @@ export default function LiveMap({ markers, height = 380, fitKey = '' }) {
         attribution: '&copy; OpenStreetMap contributors',
       }).addTo(map);
       mapRef.current = map;
+      map.on('click', e => clickRef.current && clickRef.current(e.latlng.lat, e.latlng.lng));
       sync();
     })();
     return () => {
       cancelled = true;
       if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; }
       layerRef.current = {};
+      circleRef.current = null;
       fittedFor.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -94,16 +102,37 @@ export default function LiveMap({ markers, height = 380, fitKey = '' }) {
       }
     }
 
-    // Frame all markers once per `fitKey`, then leave the view to the admin.
-    const pts = [...wanted.values()].map(m => [m.lat, m.lng]);
-    if (pts.length && fittedFor.current !== fitKey) {
-      fittedFor.current = fitKey;
-      if (pts.length === 1) map.setView(pts[0], 15);
-      else map.fitBounds(pts, { padding: [40, 40], maxZoom: 16 });
+    // Translucent area (e.g. the delivery radius)
+    const validCircle = circle && Number.isFinite(circle.lat) && Number.isFinite(circle.lng) && circle.radiusKm > 0;
+    if (!validCircle && circleRef.current) { circleRef.current.remove(); circleRef.current = null; }
+    if (validCircle) {
+      if (circleRef.current) {
+        circleRef.current.setLatLng([circle.lat, circle.lng]);
+        circleRef.current.setRadius(circle.radiusKm * 1000);
+      } else {
+        circleRef.current = L.circle([circle.lat, circle.lng], {
+          radius: circle.radiusKm * 1000, color: '#f97316', weight: 2, fillColor: '#f97316', fillOpacity: 0.12,
+        }).addTo(map);
+      }
+    }
+
+    // Frame everything once per `fitKey`, then leave the view to the admin.
+    if (fittedFor.current !== fitKey) {
+      if (validCircle) {
+        fittedFor.current = fitKey;
+        map.fitBounds(circleRef.current.getBounds(), { padding: [30, 30] });
+      } else {
+        const pts = [...wanted.values()].map(m => [m.lat, m.lng]);
+        if (pts.length) {
+          fittedFor.current = fitKey;
+          if (pts.length === 1) map.setView(pts[0], 15);
+          else map.fitBounds(pts, { padding: [40, 40], maxZoom: 16 });
+        }
+      }
     }
   }
 
-  useEffect(sync, [markers, fitKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(sync, [markers, fitKey, circle?.lat, circle?.lng, circle?.radiusKm]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return <div ref={elRef} style={{ height, width: '100%', borderRadius: 16, overflow: 'hidden', zIndex: 0 }} />;
 }

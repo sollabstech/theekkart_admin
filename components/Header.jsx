@@ -1,12 +1,24 @@
 'use client';
-import { Menu, Bell, Search } from 'lucide-react';
-import { getAdminUser } from '@/lib/auth';
+import { useEffect, useState } from 'react';
+import { Menu, Search } from 'lucide-react';
+import QuickSearch from '@/components/QuickSearch';
+import NotificationBell from '@/components/NotificationBell';
+import ProfileMenu from '@/components/ProfileMenu';
 
 export default function Header({ title, onMenuClick }) {
-  const adminName = getAdminUser();
-  const adminInitial = adminName ? adminName.charAt(0).toUpperCase() : 'A';
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  // ⌘K / Ctrl+K opens quick search from anywhere
+  useEffect(() => {
+    const onKey = e => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setSearchOpen(o => !o); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   return (
+    <>
     <header className="sticky top-0 z-20 flex items-center gap-4 px-4 lg:px-6 h-16"
       style={{
         background: 'rgba(255,255,255,0.96)',
@@ -28,27 +40,25 @@ export default function Header({ title, onMenuClick }) {
 
       {/* Right actions */}
       <div className="flex items-center gap-2">
-        {/* Search (desktop only) */}
-        <div className="hidden md:flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-gray-400 cursor-pointer hover:bg-gray-100 transition-colors"
+        {/* Search (desktop) */}
+        <button onClick={() => setSearchOpen(true)}
+          className="hidden md:flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-gray-400 hover:bg-gray-100 transition-colors"
           style={{ border: '1px solid rgba(0,0,0,0.07)' }}>
           <Search size={14} />
           <span>Quick search…</span>
           <kbd className="ml-4 px-1.5 py-0.5 rounded text-[10px] font-mono bg-gray-100 text-gray-400">⌘K</kbd>
-        </div>
-
-        {/* Notification bell */}
-        <button className="relative w-9 h-9 rounded-xl flex items-center justify-center text-gray-500 hover:text-orange-500 hover:bg-orange-50 transition-colors">
-          <Bell size={18} />
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-orange-500 rounded-full ring-2 ring-white" />
+        </button>
+        {/* Search (phone) */}
+        <button onClick={() => setSearchOpen(true)} aria-label="Search"
+          className="md:hidden w-9 h-9 rounded-xl flex items-center justify-center text-gray-500 hover:text-orange-500 hover:bg-orange-50 transition-colors">
+          <Search size={18} />
         </button>
 
-        {/* Admin avatar */}
-        <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-sm font-bold cursor-pointer"
-          style={{ background: 'linear-gradient(135deg, #f97316, #ea580c)', boxShadow: '0 2px 8px rgba(249,115,22,0.3)' }}
-          title={adminName}>
-          {adminInitial}
-        </div>
+        <NotificationBell />
+        <ProfileMenu />
       </div>
     </header>
+    <QuickSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
+    </>
   );
 }

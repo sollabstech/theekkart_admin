@@ -9,9 +9,10 @@ import { formatTimestamp } from '@/lib/firestore';
 import {
   Phone, MapPin, MessageSquare, Bike, Store,
   CheckCircle, XCircle, RefreshCw, Trash2,
-  PauseCircle, PlayCircle, KeyRound, Eye, EyeOff, Copy,
+  PauseCircle, PlayCircle, KeyRound, Eye, EyeOff, Copy, Plus,
 } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
+import AddPartnerModal from '@/components/AddPartnerModal';
 
 const ROLE_META = {
   rider:  { label: 'Delivery Rider', icon: Bike,  color: 'bg-blue-100 text-blue-700',   dot: '#3b82f6' },
@@ -210,6 +211,7 @@ export default function PartnersPage() {
   const [roleFilter,    setRoleFilter]    = useState('all');
   const [statusFilter,  setStatusFilter]  = useState('all');
   const [credModal,     setCredModal]     = useState(null);
+  const [addRole,       setAddRole]       = useState(null); // 'vendor' | 'rider' | null
 
   useEffect(() => {
     const q = query(collection(db, 'partner_requests'), orderBy('createdAt', 'desc'));
@@ -250,6 +252,21 @@ export default function PartnersPage() {
     <div className="space-y-6">
       <Toaster position="top-right" />
       {credModal && <CredentialsModal partner={credModal} onClose={() => setCredModal(null)} />}
+      {addRole && <AddPartnerModal role={addRole} onClose={() => setAddRole(null)} />}
+
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <p className="text-sm text-gray-500">Applications from the app appear here. You can also add a partner directly.</p>
+        <div className="flex gap-2">
+          <button onClick={() => setAddRole('vendor')}
+            className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold bg-orange-500 text-white hover:bg-orange-600 transition-colors">
+            <Plus size={15} /> Add Vendor
+          </button>
+          <button onClick={() => setAddRole('rider')}
+            className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors">
+            <Plus size={15} /> Add Rider
+          </button>
+        </div>
+      </div>
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">

@@ -7,9 +7,10 @@ import {
   Search, Phone, Mail, MapPin, Bike, ShieldCheck, Car,
   CheckCircle, XCircle, PauseCircle, PlayCircle, Trash2,
   KeyRound, Eye, EyeOff, Copy, RefreshCw, ChevronDown, ChevronUp,
-  User, AlertCircle,
+  User, AlertCircle, Plus,
 } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
+import AddPartnerModal from '@/components/AddPartnerModal';
 
 // ─── Credential Modal ─────────────────────────────────────────────────────────
 function CredModal({ rider, onClose }) {
@@ -208,6 +209,7 @@ export default function RidersPage() {
   const [search,  setSearch]  = useState('');
   const [filter,  setFilter]  = useState('all');
   const [credModal, setCredModal] = useState(null);
+  const [addOpen, setAddOpen] = useState(false);
 
   useEffect(() => {
     return listenToPartnersByRole('rider', data => {
@@ -261,6 +263,15 @@ export default function RidersPage() {
     <div className="space-y-6">
       <Toaster position="top-right" />
       {credModal && <CredModal rider={credModal} onClose={() => setCredModal(null)} />}
+      {addOpen && <AddPartnerModal role="rider" onClose={() => setAddOpen(false)} />}
+
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <p className="text-sm text-gray-500">Riders apply from the app, or you can add one directly.</p>
+        <button onClick={() => setAddOpen(true)}
+          className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold bg-orange-500 text-white hover:bg-orange-600 transition-colors">
+          <Plus size={15} /> Add Rider
+        </button>
+      </div>
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">

@@ -1,19 +1,15 @@
 'use client';
 import { useEffect, useState } from 'react';
 import {
-  collection, query, orderBy, onSnapshot,
+  collection, onSnapshot,
   updateDoc, deleteDoc, addDoc, doc, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { promoStatus, toDateInput, buildPromo } from '@/lib/promo';
 import { Plus, Pencil, Trash2, Tag, ToggleLeft, ToggleRight, Copy, Check } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 
-function getStatus(p) {
-  if (!p.active) return 'disabled';
-  if (p.expiresAt && p.expiresAt.toDate() < new Date()) return 'expired';
-  if (p.maxUses != null && (p.usedCount || 0) >= p.maxUses) return 'exhausted';
-  return 'active';
-}
+const getStatus = promoStatus;
 
 const STATUS_STYLE = {
   active:    'bg-green-100 text-green-700',
@@ -30,7 +26,7 @@ const STATUS_LABEL = {
 };
 
 // ─── Add / Edit Modal ─────────────────────────────────────────────────────────
-function PromoModal({ promo, onClose }) {
+function PromoModal({ promo, otherCodes, onClose }) {
   const isEdit = !!promo?.id;
   const [code,        setCode]        = useState(promo?.code        || '');
   const [type,        setType]        = useState(promo?.type        || 'percentage');
@@ -38,29 +34,20 @@ function PromoModal({ promo, onClose }) {
   const [minOrder,    setMinOrder]    = useState(promo?.minOrder    ?? '');
   const [maxUses,     setMaxUses]     = useState(promo?.maxUses     ?? '');
   const [maxDiscount, setMaxDiscount] = useState(promo?.maxDiscount ?? '');
-  const [expiresAt,   setExpiresAt]   = useState(
-    promo?.expiresAt ? promo.expiresAt.toDate().toISOString().split('T')[0] : ''
-  );
+  const [expiresAt,   setExpiresAt]   = useState(toDateInput(promo?.expiresAt));
   const [description, setDescription] = useState(promo?.description || '');
   const [saving, setSaving] = useState(false);
 
   async function save() {
-    const trimCode = code.trim().toUpperCase();
-    if (!trimCode) return toast.error('Code is required');
-    if (!value || isNaN(Number(value)) || Number(value) <= 0) return toast.error('Discount value must be greater than 0');
+    const built = buildPromo(
+      // an already-expired code may be re-saved without changing its date
+      { code, type, value, minOrder, maxUses, maxDiscount, expiresAt, description, keepExpired: isEdit && expiresAt === toDateInput(promo?.expiresAt) },
+      otherCodes
+    );
+    if (!built.ok) return toast.error(built.error);
     setSaving(true);
     try {
-      const data = {
-        code:        trimCode,
-        type,
-        value:       Number(value),
-        minOrder:    minOrder    !== '' ? Number(minOrder)    : 0,
-        maxUses:     maxUses     !== '' ? Number(maxUses)     : null,
-        maxDiscount: (type === 'percentage' && maxDiscount !== '') ? Number(maxDiscount) : null,
-        expiresAt:   expiresAt   ? new Date(expiresAt + 'T23:59:59') : null,
-        description: description.trim(),
-        active:      promo?.active ?? true,
-      };
+      const data = { ...built.data, active: promo?.active ?? true };
       if (isEdit) {
         await updateDoc(doc(db, 'promo_codes', promo.id), data);
         toast.success('Promo code updated');
@@ -207,7 +194,7 @@ function PromoRow({ promo, onEdit, onToggle, onDelete }) {
       <div className="text-center hidden lg:block w-24 flex-shrink-0">
         {promo.expiresAt ? (
           <>
-            <p className="text-xs text-gray-600">{promo.expiresAt.toDate().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+            <p className="text-xs text-gray-600">{new Date(promo.expiresAt.toMillis ? promo.expiresAt.toMillis() : promo.expiresAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
             <p className="text-xs text-gray-400">expires</p>
           </>
         ) : (
@@ -246,22 +233,29 @@ export default function PromoCodesPage() {
   const [modal, setModal]     = useState(null);
 
   useEffect(() => {
-    const q = query(collection(db, 'promo_codes'), orderBy('createdAt', 'desc'));
-    return onSnapshot(q, snap => {
-      setPromos(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    // No orderBy: a code without `createdAt` would silently vanish from the list.
+    // Newest first is done here instead.
+    return onSnapshot(collection(db, 'promo_codes'), snap => {
+      const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      rows.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+      setPromos(rows);
       setLoading(false);
-    });
+    }, () => { setLoading(false); toast.error('Could not load promo codes'); });
   }, []);
 
   async function toggleActive(promo) {
-    await updateDoc(doc(db, 'promo_codes', promo.id), { active: !promo.active });
-    toast.success(promo.active ? 'Code disabled' : 'Code enabled');
+    try {
+      await updateDoc(doc(db, 'promo_codes', promo.id), { active: !promo.active });
+      toast.success(promo.active ? 'Code disabled' : 'Code enabled');
+    } catch { toast.error('Could not update the code'); }
   }
 
   async function remove(promo) {
     if (!window.confirm(`Delete "${promo.code}"? This cannot be undone.`)) return;
-    await deleteDoc(doc(db, 'promo_codes', promo.id));
-    toast.success('Deleted');
+    try {
+      await deleteDoc(doc(db, 'promo_codes', promo.id));
+      toast.success('Deleted');
+    } catch { toast.error('Could not delete the code'); }
   }
 
   const activeCount   = promos.filter(p => getStatus(p) === 'active').length;
@@ -310,7 +304,13 @@ export default function PromoCodesPage() {
         </div>
       )}
 
-      {modal !== null && <PromoModal promo={modal?.id ? modal : null} onClose={() => setModal(null)} />}
+      {modal !== null && (
+        <PromoModal
+          promo={modal?.id ? modal : null}
+          otherCodes={promos.filter(p => p.id !== modal?.id).map(p => p.code)}
+          onClose={() => setModal(null)}
+        />
+      )}
     </div>
   );
 }

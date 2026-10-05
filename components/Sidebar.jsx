@@ -1,13 +1,12 @@
 'use client';
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { adminLogout, getAdminUser } from '@/lib/auth';
-import { ATTENTION_EVENT } from '@/components/NotificationWatcher';
+import { useAlerts } from '@/lib/alertStore';
 import {
   LayoutDashboard, ShoppingBag, Package, Grid3X3,
   UserCheck, Image, BarChart3, MessageCircle, Wrench,
-  LogOut, X, Tag, Bike, Store, Users, Bell, Handshake, MapPin
+  LogOut, X, Tag, Bike, Store, Users, Bell, Handshake, MapPin, MapPinned, Wallet
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -16,6 +15,7 @@ const NAV = [
   { href: '/orders',        label: 'Orders',           icon: ShoppingBag,     group: 'main'     },
   { href: '/products',      label: 'Products',         icon: Package,         group: 'main'     },
   { href: '/categories',    label: 'Categories',       icon: Grid3X3,         group: 'main'     },
+  { href: '/delivery-area', label: 'Delivery Area',    icon: MapPinned,       group: 'main'     },
   { href: '/users',         label: 'App Users',        icon: UserCheck,       group: 'engage'   },
   { href: '/customers',     label: 'Customers',        icon: Users,           group: 'engage'   },
   { href: '/requests',      label: 'Requests',         icon: MessageCircle,   group: 'engage'   },
@@ -27,6 +27,7 @@ const NAV = [
   { href: '/live-map',      label: 'Live Map',         icon: MapPin,          group: 'partners' },
   { href: '/vendors',       label: 'Vendors',          icon: Store,           group: 'partners' },
   { href: '/partners',      label: 'All Partners',     icon: Handshake,       group: 'partners' },
+  { href: '/settlements',   label: 'Settlements',      icon: Wallet,          group: 'partners' },
   { href: '/reports',       label: 'Reports',          icon: BarChart3,       group: 'reports'  },
 ];
 
@@ -34,15 +35,13 @@ export default function Sidebar({ open, onClose }) {
   const pathname = usePathname();
   const router = useRouter();
 
-  // "Needs rider" / "Needs vendor" counts published by NotificationWatcher.
-  const [attention, setAttention] = useState({ needsRider: 0, needsVendor: 0 });
-  useEffect(() => {
-    if (typeof window !== 'undefined' && window.__tkAttention) setAttention(window.__tkAttention);
-    const onChange = e => setAttention(e.detail || { needsRider: 0, needsVendor: 0 });
-    window.addEventListener(ATTENTION_EVENT, onChange);
-    return () => window.removeEventListener(ATTENTION_EVENT, onChange);
-  }, []);
-  const orderAlerts = attention.needsRider + attention.needsVendor;
+  // Live counts published by NotificationWatcher
+  const { counts } = useAlerts();
+  const badges = {
+    '/orders': { n: counts.ordersTotal, title: `${counts.newOrders} new · ${counts.needsRider} need a rider · ${counts.needsVendor} need a vendor` },
+    '/requests': { n: counts.requests, title: `${counts.requests} pending request${counts.requests !== 1 ? 's' : ''} / issue${counts.requests !== 1 ? 's' : ''}` },
+    '/home-services': { n: counts.services, title: `${counts.services} pending home service request${counts.services !== 1 ? 's' : ''}` },
+  };
 
   function logout() {
     adminLogout();
@@ -110,10 +109,10 @@ export default function Sidebar({ open, onClose }) {
                 } : { background: 'transparent', border: '1px solid transparent' }}>
                 <Icon size={16} style={{ color: active ? '#f97316' : undefined }} />
                 <span className="flex-1">{label}</span>
-                {href === '/orders' && orderAlerts > 0 && (
-                  <span title={`${attention.needsRider} need a rider · ${attention.needsVendor} need a vendor`}
-                    className="text-[10px] font-bold text-white bg-red-500 rounded-full px-1.5 py-0.5 leading-none">
-                    {attention.needsRider > 0 ? `${attention.needsRider} need rider` : `${orderAlerts}`}
+                {badges[href]?.n > 0 && (
+                  <span title={badges[href].title}
+                    className="text-[10px] font-bold text-white bg-red-500 rounded-full px-1.5 py-0.5 leading-none min-w-[18px] text-center">
+                    {badges[href].n > 99 ? '99+' : badges[href].n}
                   </span>
                 )}
                 {active && (
@@ -141,6 +140,12 @@ export default function Sidebar({ open, onClose }) {
                 } : { background: 'transparent', border: '1px solid transparent' }}>
                 <Icon size={16} style={{ color: active ? '#f97316' : undefined }} />
                 <span className="flex-1">{label}</span>
+                {badges[href]?.n > 0 && (
+                  <span title={badges[href].title}
+                    className="text-[10px] font-bold text-white bg-red-500 rounded-full px-1.5 py-0.5 leading-none min-w-[18px] text-center">
+                    {badges[href].n > 99 ? '99+' : badges[href].n}
+                  </span>
+                )}
                 {active && (
                   <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#f97316', display: 'block', flexShrink: 0 }} />
                 )}
@@ -166,6 +171,12 @@ export default function Sidebar({ open, onClose }) {
                 } : { background: 'transparent', border: '1px solid transparent' }}>
                 <Icon size={16} style={{ color: active ? '#f97316' : undefined }} />
                 <span className="flex-1">{label}</span>
+                {badges[href]?.n > 0 && (
+                  <span title={badges[href].title}
+                    className="text-[10px] font-bold text-white bg-red-500 rounded-full px-1.5 py-0.5 leading-none min-w-[18px] text-center">
+                    {badges[href].n > 99 ? '99+' : badges[href].n}
+                  </span>
+                )}
                 {active && (
                   <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#f97316', display: 'block', flexShrink: 0 }} />
                 )}
@@ -191,6 +202,12 @@ export default function Sidebar({ open, onClose }) {
                 } : { background: 'transparent', border: '1px solid transparent' }}>
                 <Icon size={16} style={{ color: active ? '#f97316' : undefined }} />
                 <span className="flex-1">{label}</span>
+                {badges[href]?.n > 0 && (
+                  <span title={badges[href].title}
+                    className="text-[10px] font-bold text-white bg-red-500 rounded-full px-1.5 py-0.5 leading-none min-w-[18px] text-center">
+                    {badges[href].n > 99 ? '99+' : badges[href].n}
+                  </span>
+                )}
                 {active && (
                   <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#f97316', display: 'block', flexShrink: 0 }} />
                 )}

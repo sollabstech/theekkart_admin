@@ -4,6 +4,7 @@ import { getCategories, addCategory, updateCategory, deleteCategory } from '@/li
 import { Toaster } from 'react-hot-toast';
 import toast from 'react-hot-toast';
 import { Plus, Pencil, Trash2, Eye, EyeOff } from 'lucide-react';
+import { EMOJI_GROUPS, normalizeIcon } from '@/lib/emoji';
 
 const DEFAULT_CATEGORIES = [
   { name: 'Grocery',              icon: '🛒', order: 1, hidden: false },
@@ -46,10 +47,14 @@ export default function CategoriesPage() {
   function openEdit(c) { setEditing(c.id); setForm({ ...c }); setModal(true); }
 
   async function handleSave() {
-    if (!form.name) return toast.error('Name is required');
+    if (!form.name.trim()) return toast.error('Name is required');
+    const icon = normalizeIcon(form.icon);
+    if (!icon.ok) return toast.error('Pick an emoji for the icon (tap one below, or paste/type one)');
     setSaving(true);
     try {
-      const data = { ...form, order: parseInt(form.order) || 1 };
+      // `id` is the document id, never a field; icon is one clean emoji
+      const { id: _id, ...fields } = form;
+      const data = { ...fields, name: form.name.trim(), icon: icon.icon, order: parseInt(form.order) || 1 };
       if (editing) { await updateCategory(editing, data); toast.success('Updated'); }
       else { await addCategory(data); toast.success('Category added'); }
       setModal(false); load();
@@ -136,13 +141,11 @@ export default function CategoriesPage() {
 
       {modal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-6">
+          <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-6 max-h-[92vh] overflow-y-auto">
             <h2 className="text-lg font-bold text-gray-800 mb-5">{editing ? 'Edit Category' : 'Add Category'}</h2>
             <div className="space-y-4">
               {[
                 { label: 'Category Name *', key: 'name', type: 'text' },
-                { label: 'Icon (emoji)', key: 'icon', type: 'text' },
-                { label: 'Display Order', key: 'order', type: 'number' },
               ].map(f => (
                 <div key={f.key}>
                   <label className="block text-sm font-medium text-gray-700 mb-1">{f.label}</label>
@@ -153,6 +156,44 @@ export default function CategoriesPage() {
                   />
                 </div>
               ))}
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Icon (emoji)</label>
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-xl bg-orange-50 border border-orange-100 flex items-center justify-center text-3xl flex-shrink-0">
+                    {normalizeIcon(form.icon).ok ? normalizeIcon(form.icon).icon : '❔'}
+                  </div>
+                  <input
+                    type="text" value={form.icon} placeholder="Tap one below or paste"
+                    onChange={e => setForm(p => ({ ...p, icon: e.target.value }))}
+                    className="flex-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                  />
+                </div>
+                <div className="mt-2 max-h-40 overflow-y-auto border border-gray-100 rounded-xl p-2 space-y-2">
+                  {EMOJI_GROUPS.map(g => (
+                    <div key={g.label}>
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1">{g.label}</p>
+                      <div className="flex flex-wrap gap-1">
+                        {g.icons.map(ic => (
+                          <button key={ic} type="button" onClick={() => setForm(p => ({ ...p, icon: ic }))}
+                            className={`w-9 h-9 text-xl rounded-lg hover:bg-orange-50 ${form.icon === ic ? 'bg-orange-100 ring-1 ring-orange-400' : ''}`}>
+                            {ic}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Display Order</label>
+                <input
+                  type="number" value={form.order}
+                  onChange={e => setForm(p => ({ ...p, order: e.target.value }))}
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                />
+              </div>
               <label className="flex items-center gap-3 cursor-pointer">
                 <input
                   type="checkbox" checked={form.hidden}

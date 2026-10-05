@@ -3,12 +3,14 @@ import { useEffect, useState } from 'react';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, orderBy, query } from 'firebase/firestore';
 import { downloadExcel, downloadPDF } from '@/lib/download';
+import { signInState, SIGN_IN_LABELS, countSignInStates } from '@/lib/userStatus';
 import { Search, Phone, User, FileSpreadsheet, FileText } from 'lucide-react';
 
 const PDF_COLS = [
   { header: 'Name',   key: 'name'   },
   { header: 'Phone',  key: 'phone'  },
   { header: 'Joined', key: 'joined' },
+  { header: 'Status', key: 'status' },
 ];
 
 export default function UsersPage() {
@@ -16,6 +18,7 @@ export default function UsersPage() {
   const [loading, setLoading] = useState(true);
   const [search,  setSearch]  = useState('');
   const [busy,    setBusy]    = useState(false);
+  const [stateFilter, setStateFilter] = useState('all'); // all | in | out | unknown
 
   useEffect(() => {
     async function load() {
@@ -35,7 +38,10 @@ export default function UsersPage() {
     load();
   }, []);
 
+  const counts = countSignInStates(users);
+
   const filtered = users.filter(u => {
+    if (stateFilter !== 'all' && signInState(u) !== stateFilter) return false;
     if (!search) return true;
     const q = search.toLowerCase();
     return (u.name || '').toLowerCase().includes(q) || (u.phone || '').includes(q);
@@ -53,6 +59,7 @@ export default function UsersPage() {
       'Name':   u.name  || '—',
       'Phone':  u.phone || '—',
       'Joined': fmt(u.createdAt),
+      'Status': SIGN_IN_LABELS[signInState(u)],
     }));
   }
 
@@ -61,6 +68,7 @@ export default function UsersPage() {
       name:   u.name  || '—',
       phone:  u.phone || '—',
       joined: fmt(u.createdAt),
+      status: SIGN_IN_LABELS[signInState(u)],
     }));
   }
 
@@ -108,6 +116,20 @@ export default function UsersPage() {
             disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
           <FileText size={14} /> PDF
         </button>
+      </div>
+
+      {/* Sign-in filter */}
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {[
+          ['all', 'All'], ['in', 'Signed in'], ['out', 'Signed out'], ['unknown', 'Not tracked yet'],
+        ].map(([key, label]) => (
+          <button key={key} onClick={() => setStateFilter(key)}
+            className={`flex-shrink-0 px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
+              stateFilter === key ? 'bg-orange-500 text-white shadow-sm' : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-100'
+            }`}>
+            {label} <span className="ml-1 opacity-70">({counts[key]})</span>
+          </button>
+        ))}
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
@@ -173,11 +195,22 @@ export default function UsersPage() {
                     </div>
                   </div>
 
-                  {/* Badge */}
-                  <div className="shrink-0 flex items-center gap-1.5 px-3 py-1 rounded-full bg-green-50">
-                    <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
-                    <span className="text-xs font-semibold text-green-600">Signed in</span>
-                  </div>
+                  {/* Badge — the real state, never assumed */}
+                  {(() => {
+                    const st = signInState(u);
+                    const look = {
+                      in:      { wrap: 'bg-green-50', dot: 'bg-green-400', text: 'text-green-600' },
+                      out:     { wrap: 'bg-gray-100', dot: 'bg-gray-400',  text: 'text-gray-500' },
+                      unknown: { wrap: 'bg-yellow-50', dot: 'bg-yellow-400', text: 'text-yellow-700' },
+                    }[st];
+                    return (
+                      <div title={st === 'unknown' ? 'This user signed in before sign-in tracking existed — it updates the next time they sign in or out.' : undefined}
+                        className={`shrink-0 flex items-center gap-1.5 px-3 py-1 rounded-full ${look.wrap}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full inline-block ${look.dot}`} />
+                        <span className={`text-xs font-semibold ${look.text}`}>{SIGN_IN_LABELS[st]}</span>
+                      </div>
+                    );
+                  })()}
 
                 </div>
               ))}
