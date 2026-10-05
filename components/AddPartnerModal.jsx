@@ -4,10 +4,11 @@ import { addDoc, collection, getDocs, serverTimestamp } from 'firebase/firestore
 import { db } from '@/lib/firebase';
 import { getAdminUser } from '@/lib/auth';
 import { buildPartnerDoc, generatePassword, suggestUsername } from '@/lib/partners';
+import { categoryList } from '@/lib/vendorCategory';
+import { getCategories } from '@/lib/firestore';
 import toast from 'react-hot-toast';
 import { X, Copy, RefreshCw, Eye, EyeOff, CheckCircle2, LocateFixed } from 'lucide-react';
 
-const CATEGORIES = ['Grocery', 'Food', 'Vegetables & Fruits', 'Dairy & Eggs', 'Bakery', 'Meat & Seafood', 'Snacks & Beverages', 'Pharmacy', 'Household', 'Other'];
 const VEHICLES = ['Bike', 'Scooter', 'Cycle'];
 
 const input = 'w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400';
@@ -29,6 +30,7 @@ function Field({ label, children, hint }) {
 export default function AddPartnerModal({ role, onClose }) {
   const isVendor = role === 'vendor';
   const [taken, setTaken] = useState([]);
+  const [categories, setCategories] = useState(() => categoryList([])); // the admin's Categories (loaded below)
   const [form, setForm] = useState({
     name: '', shopName: '', phone: '', email: '', area: '', address: '', businessCategory: '',
     vehicleType: 'Bike', vehicleNumber: '', drivingLicence: '', shopLat: '', shopLng: '',
@@ -48,6 +50,9 @@ export default function AddPartnerModal({ role, onClose }) {
     }).catch(() => {});
   }, []);
 
+  // The categories the admin created (Categories page); the defaults until they load / when there are none
+  useEffect(() => { getCategories().then(c => setCategories(categoryList(c))).catch(() => {}); }, []);
+
   // Suggest a username from the shop / person name until the admin types their own
   const suggested = useMemo(() => suggestUsername(role, isVendor ? (form.shopName || form.name) : form.name, taken), [role, isVendor, form.shopName, form.name, taken]);
   useEffect(() => { if (!userEdited) set('username', suggested); }, [suggested, userEdited]);
@@ -62,13 +67,13 @@ export default function AddPartnerModal({ role, onClose }) {
   }
 
   async function save() {
-    const built = buildPartnerDoc(role, form, taken);
+    const built = buildPartnerDoc(role, form, taken, categories);
     if (!built.ok) return toast.error(built.error);
     setSaving(true);
     try {
       // re-check right before saving (someone else may have just taken the username)
       const fresh = (await getDocs(collection(db, 'partner_requests'))).docs.map(d => d.data().credentials?.username).filter(Boolean);
-      const again = buildPartnerDoc(role, form, fresh);
+      const again = buildPartnerDoc(role, form, fresh, categories);
       if (!again.ok) { setTaken(fresh); setSaving(false); return toast.error(again.error); }
       await addDoc(collection(db, 'partner_requests'), {
         ...again.data, createdBy: getAdminUser(), createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
@@ -120,10 +125,10 @@ export default function AddPartnerModal({ role, onClose }) {
 
               {isVendor ? (
                 <>
-                  <Field label="Business category">
+                  <Field label="Shop category *" hint="A shop belongs to one category only — it can sell only items of that category.">
                     <select className={input} value={form.businessCategory} onChange={e => set('businessCategory', e.target.value)}>
                       <option value="">— select —</option>
-                      {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+                      {categories.map(c => <option key={c.id || c.name} value={c.name}>{c.name}</option>)}
                     </select>
                   </Field>
                   <div>

@@ -6,6 +6,8 @@ import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage
 import { storage } from '@/lib/firebase';
 import StatusBadge from '@/components/StatusBadge';
 import { shopCoords } from '@/lib/geo';
+import { categoryList, decideProductCategory, resolveVendorCategory, shopCategoryName } from '@/lib/vendorCategory';
+import { productsOutsideCategory } from '@/lib/manualOrder';
 import { shopState, hoursLabel } from '@/lib/shopHours';
 import {
   getPartnerById, getVendorProducts, listenToVendorOrders, syncVendorOrders,
@@ -22,12 +24,11 @@ import {
 import toast, { Toaster } from 'react-hot-toast';
 
 const TABS = ['Overview', 'Products', 'Orders', 'Profile'];
-const CATEGORIES = ['Grocery','Vegetables & Fruits','Dairy & Eggs','Bakery','Meat & Seafood','Snacks & Beverages','Pharmacy','Household','Other'];
 const MAX_IMG = 7;
 const EMPTY_PRODUCT = { name:'', description:'', price:'', originalPrice:'', unit:'', category:'', available:true, images:[] };
 
 // ─── Product Modal ─────────────────────────────────────────────────────────────
-function ProductModal({ editing, form, setForm, saving, onSave, onClose, uploading, onUpload, onRemoveImg, onSetMain, fileRef, onTriggerPicker, categories }) {
+function ProductModal({ editing, form, setForm, saving, onSave, onClose, uploading, onUpload, onRemoveImg, onSetMain, fileRef, onTriggerPicker, categories, lockedCategory }) {
   const slots = Array.from({ length: MAX_IMG }, (_, i) => ({ url: form.images[i] || null, index: i }));
 
   return (
@@ -99,11 +100,21 @@ function ProductModal({ editing, form, setForm, saving, onSave, onClose, uploadi
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
-              <select value={form.category} onChange={e => setForm(f => ({...f, category: e.target.value}))}
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400">
-                <option value="">Select…</option>
-                {(categories.length ? categories.map(c=>c.name) : CATEGORIES).map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
+              {lockedCategory ? (
+                <>
+                  <div className="w-full px-3 py-2.5 border border-gray-200 bg-gray-50 rounded-xl text-sm text-gray-700 font-medium">{lockedCategory}</div>
+                  <p className="text-[11px] text-gray-400 mt-1">This shop sells only {lockedCategory} (change it in the Profile tab).</p>
+                </>
+              ) : (
+                <>
+                  <select value={form.category} onChange={e => setForm(f => ({...f, category: e.target.value}))}
+                    className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400">
+                    <option value="">Select…</option>
+                    {categories.map(c => <option key={c.id || c.name} value={c.name}>{c.name}</option>)}
+                  </select>
+                  <p className="text-[11px] text-gray-400 mt-1">A shop belongs to one category. This becomes the shop&apos;s category.</p>
+                </>
+              )}
             </div>
             <div className="sm:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
@@ -141,6 +152,7 @@ export default function VendorDetailPage({ params }) {
   const [products,   setProducts]   = useState([]);
   const [orders,     setOrders]     = useState([]);
   const [categories, setCategories] = useState([]);
+  const cats = useMemo(() => categoryList(categories), [categories]);
   const [loading,    setLoading]    = useState(true);
   const [tab,        setTab]        = useState('Overview');
 
@@ -214,10 +226,20 @@ export default function VendorDetailPage({ params }) {
 
   async function handleSave() {
     if (!form.name || !form.price) return toast.error('Name and price are required');
+    // a shop has ONE category: the product takes it (the first product of a shop with none sets it)
+    const shopRaw = vendor.businessCategory || vendor.shopCategory;
+    // (an old product outside the category is simply moved into it when saved)
+    const decided = decideProductCategory(shopRaw, resolveVendorCategory(shopRaw, cats) ? '' : form.category, cats);
+    if (!decided.ok) return toast.error(decided.error);
     setSaving(true);
     try {
+      if (decided.setShop) {
+        await updatePartner(id, { businessCategory: decided.category });
+        setVendor(v => ({ ...v, businessCategory: decided.category }));
+      }
       const data = {
         ...form,
+        category:      decided.category,
         vendorId:      id,
         price:         parseFloat(form.price) || 0,
         originalPrice: form.originalPrice !== '' ? parseFloat(form.originalPrice) || null : null,
@@ -250,6 +272,18 @@ export default function VendorDetailPage({ params }) {
     setProducts(prev => prev.map(x => x.id === p.id ? { ...x, available: !x.available } : x));
     try { await updateProduct(p.id, { available: !p.available }); }
     catch { setProducts(prev => prev.map(x => x.id === p.id ? { ...x, available: p.available } : x)); }
+  }
+
+  // Move every product that is outside the shop's one category into it
+  async function moveOutside() {
+    const target = resolveVendorCategory(vendor.businessCategory || vendor.shopCategory, cats);
+    if (!target) return;
+    const list = productsOutsideCategory(products, vendor, cats);
+    try {
+      for (const p of list) await updateProduct(p.id, { category: target.name });
+      setProducts(prev => prev.map(x => list.some(l => l.id === x.id) ? { ...x, category: target.name } : x));
+      toast.success(`${list.length} product${list.length !== 1 ? 's' : ''} moved to ${target.name}`);
+    } catch { toast.error('Could not move the products'); getVendorProducts(id).then(setProducts); }
   }
 
   async function handleSyncOrders() {
@@ -286,6 +320,8 @@ export default function VendorDetailPage({ params }) {
   );
 
   const isSusp = !!vendor.suspended;
+  const shopCategory = resolveVendorCategory(vendor.businessCategory || vendor.shopCategory, cats);
+  const outside = productsOutsideCategory(products, vendor, cats);
 
   return (
     <>
@@ -297,7 +333,7 @@ export default function VendorDetailPage({ params }) {
           uploading={uploading} onUpload={handleUpload}
           onRemoveImg={removeImg} onSetMain={setMain}
           fileRef={fileRef} onTriggerPicker={triggerPicker}
-          categories={categories}
+          categories={cats} lockedCategory={shopCategory?.name || ''}
         />
       )}
       {/* Hidden file input */}
@@ -323,7 +359,7 @@ export default function VendorDetailPage({ params }) {
               )}
               <div>
                 <h2 className="text-xl font-bold text-gray-900">{vendor.shopName || vendor.name}</h2>
-                <p className="text-sm text-gray-400">Owner: {vendor.name} · {vendor.businessCategory || vendor.role}</p>
+                <p className="text-sm text-gray-400">Owner: {vendor.name} · {shopCategoryName(vendor, cats) || vendor.role}</p>
                 <div className="flex gap-2 mt-1">
                   <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${vendor.status === 'approved' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
                     {vendor.status || 'pending'}
@@ -396,7 +432,8 @@ export default function VendorDetailPage({ params }) {
             </InfoCard>
             {/* Business */}
             <InfoCard title="Business Details" icon={Building}>
-              <InfoRow icon={Tag}      label="Category" value={vendor.businessCategory} />
+              <InfoRow icon={Tag}      label="Category" value={shopCategoryName(vendor, cats)} />
+              {vendor.minOrder > 0 && <InfoRow icon={IndianRupee} label="Min order" value={`₹${vendor.minOrder}`} />}
               <InfoRow icon={Building} label="Type"     value={vendor.shopType} />
               <InfoRow icon={FileText} label="GST"      value={vendor.gstNumber} />
               <InfoRow icon={FileText} label="Reg. No." value={vendor.businessRegistrationNumber} />
@@ -435,6 +472,17 @@ export default function VendorDetailPage({ params }) {
                 <Plus size={16}/> Add Product
               </button>
             </div>
+
+            {outside.length > 0 && shopCategory && (
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
+                <p className="text-sm text-amber-800">
+                  <b>{outside.length}</b> product{outside.length !== 1 ? 's are' : ' is'} outside this shop&apos;s category (<b>{shopCategory.name}</b>) and won&apos;t show in the right place for customers.
+                </p>
+                <button onClick={moveOutside} className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold rounded-xl whitespace-nowrap">
+                  Move to {shopCategory.name}
+                </button>
+              </div>
+            )}
 
             {filteredProducts.length === 0 ? (
               <div className="bg-white rounded-2xl p-16 text-center border border-gray-100">
@@ -558,7 +606,7 @@ export default function VendorDetailPage({ params }) {
               </InfoCard>
               <InfoCard title="Shop Information" icon={Store}>
                 <InfoRow icon={Store}    label="Shop Name"  value={vendor.shopName} />
-                <InfoRow icon={Tag}      label="Category"   value={vendor.businessCategory} />
+                <InfoRow icon={Tag}      label="Category"   value={shopCategoryName(vendor, cats)} />
                 <InfoRow icon={Building} label="Type"       value={vendor.shopType} />
                 <InfoRow icon={MapPin}   label="Address"    value={vendor.shopAddress || vendor.address} />
                 <InfoRow icon={MapPin}   label="Area"       value={vendor.area || vendor.district} />
@@ -578,6 +626,11 @@ export default function VendorDetailPage({ params }) {
                   <InfoRow icon={FileText}   label="IFSC"    value={vendor.bankDetails.ifsc} />
                 </InfoCard>
               )}
+              <ShopRulesCard vendor={vendor} categories={cats} outsideCount={outside.length} onSave={async fields => {
+                await updatePartner(id, fields);
+                setVendor(v => ({ ...v, ...fields }));
+                toast.success('Shop rules saved');
+              }} />
               <ShopLocationCard vendor={vendor} onSave={async (lat, lng) => {
                 await updatePartner(id, { shopLat: lat, shopLng: lng });
                 setVendor(v => ({ ...v, shopLat: lat, shopLng: lng }));
@@ -588,6 +641,49 @@ export default function VendorDetailPage({ params }) {
         )}
       </div>
     </>
+  );
+}
+
+// ─── Shop rules: the shop's ONE category and its minimum order ──────────────────
+function ShopRulesCard({ vendor, categories, outsideCount, onSave }) {
+  const current = resolveVendorCategory(vendor.businessCategory || vendor.shopCategory, categories);
+  const [category, setCategory] = useState(current?.name || '');
+  const [minOrder, setMinOrder] = useState(vendor.minOrder > 0 ? String(vendor.minOrder) : '');
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    const min = minOrder.trim() === '' ? 0 : Number(minOrder);
+    if (!Number.isFinite(min) || min < 0) return toast.error('Minimum order must be a number (₹) or empty');
+    const fields = { minOrder: min };
+    if (category) fields.businessCategory = category;
+    setSaving(true);
+    try { await onSave(fields); } catch { toast.error('Failed to save'); }
+    setSaving(false);
+  }
+
+  return (
+    <InfoCard title="Shop rules" icon={Tag}>
+      <div className="space-y-3 pt-1">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Category (a shop belongs to one category only)</label>
+          <select value={category} onChange={e => setCategory(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400">
+            <option value="">{current ? '— keep —' : '— not set —'}</option>
+            {categories.map(c => <option key={c.id || c.name} value={c.name}>{c.name}</option>)}
+          </select>
+          {outsideCount > 0 && <p className="text-[11px] text-amber-600 mt-1">{outsideCount} product{outsideCount !== 1 ? 's are' : ' is'} outside the category — see the Products tab.</p>}
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Minimum order (₹) — empty for none</label>
+          <input value={minOrder} onChange={e => setMinOrder(e.target.value)} inputMode="numeric" placeholder="e.g. 150"
+            className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
+        </div>
+        <button onClick={save} disabled={saving}
+          className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold rounded-xl disabled:opacity-50">
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+    </InfoCard>
   );
 }
 

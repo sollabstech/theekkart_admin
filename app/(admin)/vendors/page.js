@@ -5,8 +5,9 @@ import { doc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import {
   listenToPartnersByRole, formatTimestamp,
-  getAllProductsGrouped, getAllOrdersGrouped,
+  getAllProductsGrouped, getAllOrdersGrouped, getCategories,
 } from '@/lib/firestore';
+import { categoryList, shopCategoryName } from '@/lib/vendorCategory';
 import {
   Search, Store, Phone, Mail, MapPin, Package, ShoppingBag,
   TrendingUp, IndianRupee, CheckCircle, XCircle, PauseCircle,
@@ -17,7 +18,7 @@ import toast, { Toaster } from 'react-hot-toast';
 import AddPartnerModal from '@/components/AddPartnerModal';
 import { shopState, hoursLabel } from '@/lib/shopHours';
 
-const CATEGORIES = ['All','Grocery','Vegetables & Fruits','Dairy & Eggs','Bakery','Meat & Seafood','Snacks & Beverages','Pharmacy','Household','Other'];
+const NO_CATEGORY = 'No category';
 
 // ─── Credential Modal ─────────────────────────────────────────────────────────
 function CredModal({ vendor, onClose }) {
@@ -82,7 +83,7 @@ function CredModal({ vendor, onClose }) {
 }
 
 // ─── Vendor Row ───────────────────────────────────────────────────────────────
-function VendorRow({ v, productCount, orderCount, revenue, todayIncome, onApprove, onReject, onReset, onSuspend, onDelete, onSetCreds }) {
+function VendorRow({ v, categories, productCount, orderCount, revenue, todayIncome, onApprove, onReject, onReset, onSuspend, onDelete, onSetCreds }) {
   const isPending  = !v.status || v.status === 'pending';
   const isApproved = v.status === 'approved';
   const isRejected = v.status === 'rejected';
@@ -117,7 +118,7 @@ function VendorRow({ v, productCount, orderCount, revenue, todayIncome, onApprov
               {isSusp && <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">Suspended</span>}
               {!isSusp && isApproved && shopState(v) === 'closed_switch' && <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-600">Shop switched off</span>}
               {!isSusp && isApproved && shopState(v) === 'outside_hours' && <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">Closed now{hoursLabel(v) ? ` · ${hoursLabel(v)}` : ''}</span>}
-              {v.businessCategory && <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">{v.businessCategory}</span>}
+              {shopCategoryName(v, categories) && <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">{shopCategoryName(v, categories)}</span>}
             </div>
             <div className="flex flex-wrap gap-3 text-xs text-gray-500">
               {v.phone && <a href={`tel:${v.phone}`} className="flex items-center gap-1 text-orange-500 font-medium"><Phone size={11}/>{v.phone}</a>}
@@ -208,6 +209,7 @@ export default function VendorsPage() {
   const [search,       setSearch]       = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [catFilter,    setCatFilter]    = useState('All');
+  const [categories,   setCategories]   = useState(() => categoryList([]));
   const [credModal,    setCredModal]    = useState(null);
   const [addOpen,      setAddOpen]      = useState(false);
 
@@ -218,6 +220,8 @@ export default function VendorsPage() {
     });
     return unsub;
   }, []);
+
+  useEffect(() => { getCategories().then(c => setCategories(categoryList(c))).catch(() => {}); }, []);
 
   useEffect(() => {
     Promise.all([getAllProductsGrouped(), getAllOrdersGrouped()]).then(([pMap, { countMap, revenueMap: rMap, todayMap: tMap }]) => {
@@ -256,9 +260,10 @@ export default function VendorsPage() {
     const matchQ = !q || v.name?.toLowerCase().includes(q) || v.shopName?.toLowerCase().includes(q)
       || v.phone?.includes(q) || v.area?.toLowerCase().includes(q) || v.district?.toLowerCase().includes(q);
     const matchS = statusFilter === 'all' ? true : statusFilter === 'approved' ? v.status === 'approved' : statusFilter === 'pending' ? (!v.status || v.status === 'pending') : v.status === statusFilter;
-    const matchC = catFilter === 'All' || v.businessCategory === catFilter;
+    const mine = shopCategoryName(v, categories);
+    const matchC = catFilter === 'All' || (catFilter === NO_CATEGORY ? !categories.some(c => c.name === mine) : mine === catFilter);
     return matchQ && matchS && matchC;
-  }), [vendors, search, statusFilter, catFilter]);
+  }), [vendors, search, statusFilter, catFilter, categories]);
 
   return (
     <div className="space-y-6">
@@ -312,7 +317,7 @@ export default function VendorsPage() {
         {/* Category filter */}
         <div className="flex items-center gap-2 flex-wrap">
           <Filter size={14} className="text-gray-400"/>
-          {CATEGORIES.map(c => (
+          {['All', ...categories.map(c => c.name), NO_CATEGORY].map(c => (
             <button key={c} onClick={() => setCatFilter(c)}
               className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${catFilter === c ? 'bg-gray-800 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
               {c}
@@ -332,7 +337,7 @@ export default function VendorsPage() {
       ) : (
         <div className="space-y-3">
           {displayed.map(v => (
-            <VendorRow key={v.id} v={v}
+            <VendorRow categories={categories} key={v.id} v={v}
               productCount={productMap[v.id] ?? 0}
               orderCount={orderMap[v.id]   ?? 0}
               revenue={revenueMap[v.id]    ?? 0}
