@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 import AddPartnerModal from '@/components/AddPartnerModal';
+import { shopState, hoursLabel } from '@/lib/shopHours';
 
 const CATEGORIES = ['All','Grocery','Vegetables & Fruits','Dairy & Eggs','Bakery','Meat & Seafood','Snacks & Beverages','Pharmacy','Household','Other'];
 
@@ -98,9 +99,14 @@ function VendorRow({ v, productCount, orderCount, revenue, todayIncome, onApprov
       <div className="p-5">
         {/* Top row */}
         <div className="flex items-start gap-4">
-          <div className="w-11 h-11 rounded-2xl bg-orange-50 flex items-center justify-center flex-shrink-0">
-            <Store size={20} className="text-orange-500" />
-          </div>
+          {v.logo ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={v.logo} alt="" className="w-11 h-11 rounded-2xl object-cover flex-shrink-0 border border-gray-100" />
+          ) : (
+            <div className="w-11 h-11 rounded-2xl bg-orange-50 flex items-center justify-center flex-shrink-0">
+              <Store size={20} className="text-orange-500" />
+            </div>
+          )}
           <div className="flex-1 min-w-0">
             <div className="flex flex-wrap items-center gap-2 mb-0.5">
               <span className="font-bold text-gray-900">{v.shopName || v.name || '—'}</span>
@@ -109,6 +115,8 @@ function VendorRow({ v, productCount, orderCount, revenue, todayIncome, onApprov
                 {v.status || 'pending'}
               </span>
               {isSusp && <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">Suspended</span>}
+              {!isSusp && isApproved && shopState(v) === 'closed_switch' && <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-600">Shop switched off</span>}
+              {!isSusp && isApproved && shopState(v) === 'outside_hours' && <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">Closed now{hoursLabel(v) ? ` · ${hoursLabel(v)}` : ''}</span>}
               {v.businessCategory && <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">{v.businessCategory}</span>}
             </div>
             <div className="flex flex-wrap gap-3 text-xs text-gray-500">

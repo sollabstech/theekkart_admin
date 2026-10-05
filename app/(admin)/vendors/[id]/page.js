@@ -6,6 +6,7 @@ import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage
 import { storage } from '@/lib/firebase';
 import StatusBadge from '@/components/StatusBadge';
 import { shopCoords } from '@/lib/geo';
+import { shopState, hoursLabel } from '@/lib/shopHours';
 import {
   getPartnerById, getVendorProducts, listenToVendorOrders, syncVendorOrders,
   addProduct, updateProduct, deleteProduct, getCategories,
@@ -312,9 +313,14 @@ export default function VendorDetailPage({ params }) {
         <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
           <div className="flex flex-col sm:flex-row sm:items-center gap-4 justify-between">
             <div className="flex items-center gap-4">
-              <div className="w-14 h-14 rounded-2xl bg-orange-50 flex items-center justify-center">
-                <Store size={28} className="text-orange-500"/>
-              </div>
+              {vendor.logo ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={vendor.logo} alt="" className="w-14 h-14 rounded-2xl object-cover border border-gray-100" />
+              ) : (
+                <div className="w-14 h-14 rounded-2xl bg-orange-50 flex items-center justify-center">
+                  <Store size={28} className="text-orange-500"/>
+                </div>
+              )}
               <div>
                 <h2 className="text-xl font-bold text-gray-900">{vendor.shopName || vendor.name}</h2>
                 <p className="text-sm text-gray-400">Owner: {vendor.name} · {vendor.businessCategory || vendor.role}</p>
@@ -323,6 +329,8 @@ export default function VendorDetailPage({ params }) {
                     {vendor.status || 'pending'}
                   </span>
                   {isSusp && <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">Suspended</span>}
+                  {!isSusp && shopState(vendor) === 'closed_switch' && <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-600">Shop switched off</span>}
+                  {!isSusp && shopState(vendor) === 'outside_hours' && <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">Closed now{hoursLabel(vendor) ? ` · ${hoursLabel(vendor)}` : ''}</span>}
                 </div>
               </div>
             </div>
