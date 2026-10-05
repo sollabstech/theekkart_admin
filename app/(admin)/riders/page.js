@@ -9,6 +9,7 @@ import {
   KeyRound, Eye, EyeOff, Copy, RefreshCw, ChevronDown, ChevronUp,
   User, AlertCircle, Plus,
 } from 'lucide-react';
+import { ratingLabel } from '@/lib/rating';
 import toast, { Toaster } from 'react-hot-toast';
 import AddPartnerModal from '@/components/AddPartnerModal';
 
@@ -99,6 +100,7 @@ function RiderCard({ r, onApprove, onReject, onReset, onSuspend, onDelete, onSet
         <div className="flex-1 min-w-0">
           <div className="flex flex-wrap items-center gap-2 mb-1">
             <span className="font-bold text-gray-900">{r.name || '—'}</span>
+            {ratingLabel(r) && <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">★ {ratingLabel(r)}</span>}
             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${sc.bg}`}>{sc.label}</span>
             {isSusp && <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">Suspended</span>}
           </div>

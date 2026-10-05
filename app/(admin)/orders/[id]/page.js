@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { use } from 'react';
 import { listenToOrder, listenToPartnersByRole, listenToRiderLocations, formatTimestamp } from '@/lib/firestore';
 import { db } from '@/lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
+import { ratingLabel } from '@/lib/rating';
 import { getAdminUser } from '@/lib/auth';
 import {
   ORDER_STATUS, STATUS_FLOW, STATUS_LABELS, ROLES, assignmentState, effectiveStatus, isBackward, isTerminal, needsRider,
@@ -27,6 +29,7 @@ export default function OrderDetailPage({ params }) {
   const [vendors,  setVendors]  = useState([]);
   const [riders,   setRiders]   = useState([]);
   const [riderLocs, setRiderLocs] = useState({});
+  const [rating, setRating] = useState(null); // what the customer rated (ratings/{orderId})
   const [assigningRider,  setAssigningRider]  = useState(false);
   const [sharing,  setSharing]  = useState(false);
   const [now,      setNow]      = useState(() => Date.now());
@@ -46,6 +49,12 @@ export default function OrderDetailPage({ params }) {
     const tick = setInterval(() => setNow(Date.now()), 10000);
     return () => { unsubOrder(); unsubV(); unsubR(); unsubL(); clearInterval(tick); };
   }, [id]);
+
+  // the customer's rating of this order (written once, after delivery)
+  useEffect(() => {
+    if (!order?.rated) { setRating(null); return; }
+    getDoc(doc(db, 'ratings', id)).then(s => setRating(s.exists() ? s.data() : null)).catch(() => {});
+  }, [id, order?.rated]);
 
   const adminId = getAdminUser();
   const rejections = Array.isArray(order?.riderRejections) ? order.riderRejections : [];
@@ -237,6 +246,21 @@ export default function OrderDetailPage({ params }) {
         )}
 
         {/* Store (chosen by the customer) & Rider assignment (the admin's only assignment) */}
+        {rating && (
+          <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+            <h3 className="font-semibold text-gray-800 mb-2">Customer rating</h3>
+            <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-gray-700">
+              {rating.storeRating && <span>Store: <b>★ {rating.storeRating}</b></span>}
+              {rating.riderRating && <span>Rider{rating.riderName ? ` (${rating.riderName})` : ''}: <b>★ {rating.riderRating}</b></span>}
+              {Array.isArray(rating.items) && rating.items.map(i => {
+                const it = (order.items || []).find(x => (x.productId || x.id) === i.productId);
+                return <span key={i.productId}>{it?.name || 'Item'}: <b>★ {i.stars}</b></span>;
+              })}
+            </div>
+            {rating.comment && <p className="text-sm text-gray-500 mt-2">“{rating.comment}”</p>}
+          </div>
+        )}
+
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
           {/* Vendor */}
           <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
@@ -250,8 +274,8 @@ export default function OrderDetailPage({ params }) {
                   <p className="font-medium text-gray-800">{vendorLabel}</p>
                   <p className="text-xs text-gray-400">Chosen by the customer</p>
                 </div>
-                {vendorDoc?.rating > 0 && (
-                  <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-semibold">★ {Number(vendorDoc.rating).toFixed(1)}</span>
+                {ratingLabel(vendorDoc) && (
+                  <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-semibold">★ {ratingLabel(vendorDoc)}</span>
                 )}
               </div>
             ) : (

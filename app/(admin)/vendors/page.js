@@ -8,6 +8,7 @@ import {
   getAllProductsGrouped, getAllOrdersGrouped, getCategories,
 } from '@/lib/firestore';
 import { categoryList, shopCategoryName } from '@/lib/vendorCategory';
+import { ratingLabel } from '@/lib/rating';
 import {
   Search, Store, Phone, Mail, MapPin, Package, ShoppingBag,
   TrendingUp, IndianRupee, CheckCircle, XCircle, PauseCircle,
@@ -118,6 +119,7 @@ function VendorRow({ v, categories, productCount, orderCount, revenue, todayInco
               {isSusp && <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">Suspended</span>}
               {!isSusp && isApproved && shopState(v) === 'closed_switch' && <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-600">Shop switched off</span>}
               {!isSusp && isApproved && shopState(v) === 'outside_hours' && <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">Closed now{hoursLabel(v) ? ` · ${hoursLabel(v)}` : ''}</span>}
+              {ratingLabel(v) && <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">★ {ratingLabel(v)}</span>}
               {shopCategoryName(v, categories) && <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">{shopCategoryName(v, categories)}</span>}
             </div>
             <div className="flex flex-wrap gap-3 text-xs text-gray-500">
