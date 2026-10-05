@@ -5,7 +5,7 @@ import { listenToOrder, listenToPartnersByRole, listenToRiderLocations, formatTi
 import { db } from '@/lib/firebase';
 import { getAdminUser } from '@/lib/auth';
 import {
-  ORDER_STATUS, STATUS_FLOW, STATUS_LABELS, ROLES, effectiveStatus, isBackward, isTerminal, needsRider, needsVendor,
+  ORDER_STATUS, STATUS_FLOW, STATUS_LABELS, ROLES, assignmentState, effectiveStatus, isBackward, isTerminal, needsRider, needsVendor,
 } from '@/lib/orderStatus';
 import { changeOrderStatus, assignRider as assignRiderTx, assignVendor as assignVendorTx, sharePickupLocation } from '@/lib/orderTransitions';
 import {
@@ -49,6 +49,9 @@ export default function OrderDetailPage({ params }) {
   }, [id]);
 
   const adminId = getAdminUser();
+  const rejections = Array.isArray(order?.riderRejections) ? order.riderRejections : [];
+  const rejectedBy = new Set(rejections.map(r => r.riderId));
+  const answer = assignmentState(order);
   const vendorDoc = useMemo(() => vendors.find(v => v.id === order?.vendorId) || null, [vendors, order?.vendorId]);
   const vendorLabel = order?.vendorName || vendorDoc?.shopName || vendorDoc?.name || '';
   const shopPoint = shopCoords(vendorDoc) || pickupCoords(order);
@@ -58,7 +61,7 @@ export default function OrderDetailPage({ params }) {
     return riders.map(r => {
       const loc = riderLocs[r.id];
       const km = loc && shopPoint ? distanceKm(shopPoint, { lat: Number(loc.lat), lng: Number(loc.lng) }) : null;
-      return { ...r, km, online: r.available !== false };
+      return { ...r, km, online: r.available !== false, rejected: rejectedBy.has(r.id) };
     }).sort((a, b) => {
       if (a.online !== b.online) return a.online ? -1 : 1;
       if (a.km !== null && b.km !== null) return a.km - b.km;
@@ -66,7 +69,7 @@ export default function OrderDetailPage({ params }) {
       if (b.km !== null) return 1;
       return (a.name || '').localeCompare(b.name || '');
     });
-  }, [riders, riderLocs, shopPoint]);
+  }, [riders, riderLocs, shopPoint, order?.riderRejections]);
 
   const nameFor = (role, byId) => {
     if (role === ROLES.ADMIN) return byId || 'Admin';
@@ -296,15 +299,26 @@ export default function OrderDetailPage({ params }) {
                 <div>
                   <p className="font-medium text-gray-800">{order.riderName}</p>
                   <p className="text-xs text-gray-400">
-                    Assigned for delivery{loc ? ` · location ${agoText(loc.updatedAt, now)}` : ''}
+                    {answer === 'pending' ? 'Waiting for the rider to accept' : 'Assigned for delivery'}{loc ? ` · location ${agoText(loc.updatedAt, now)}` : ''}
                   </p>
                 </div>
-                <span className="text-xs bg-blue-100 text-blue-600 px-2 py-1 rounded-full font-semibold">Assigned</span>
+                {answer === 'pending'
+                  ? <span className="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded-full font-semibold">Awaiting answer</span>
+                  : <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-semibold">Accepted</span>}
               </div>
             ) : (
               <p className={`text-sm mb-3 ${needsRider(order) ? 'text-amber-600 font-medium' : 'text-gray-400'}`}>
                 {needsRider(order) ? 'Needs rider — order is ready for pickup' : 'No rider assigned yet'}
               </p>
+            )}
+            {rejections.length > 0 && (
+              <div className="mt-2 space-y-1">
+                {rejections.map((r, i) => (
+                  <p key={i} className="text-xs text-red-500">
+                    ✖ {r.riderName || 'A rider'} rejected{r.reason ? `: ${r.reason}` : ''}{r.at ? ` · ${agoText(r.at, now)}` : ''}
+                  </p>
+                ))}
+              </div>
             )}
             {riderOptions.length > 0 && !closed && (
               <div className="relative mt-3">
@@ -319,6 +333,7 @@ export default function OrderDetailPage({ params }) {
                     <option key={r.id} value={r.id}>
                       {r.online ? '🟢 Online' : '⚪ Offline'} · {r.name} · {r.area || 'No area'}
                       {r.km !== null ? ` · ${formatDistance(r.km)} from shop` : ''}
+                      {r.rejected ? ' · rejected this order' : ''}
                     </option>
                   ))}
                 </select>

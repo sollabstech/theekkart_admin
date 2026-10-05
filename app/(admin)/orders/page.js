@@ -2,7 +2,7 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { listenToOrders, listenToPartnersByRole, formatTimestamp, addOrder, getProducts } from '@/lib/firestore';
-import { statusLabel, needsRider, needsVendor } from '@/lib/orderStatus';
+import { assignmentState, statusLabel, needsRider, needsVendor } from '@/lib/orderStatus';
 import { STATUS_TABS, matchesTab, withVendorNames } from '@/lib/orderView';
 import { agoText } from '@/lib/geo';
 import { triggerOrderEvent } from '@/app/actions/orderEvents';
@@ -546,6 +546,9 @@ function OrdersContent() {
                         {order.riderName && (
                           <div className="flex items-center gap-1 text-blue-600">
                             <span>🛵</span> {order.riderName}
+                            {assignmentState(order) === 'pending' && (
+                              <span className="ml-1 text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-semibold">awaiting answer</span>
+                            )}
                           </div>
                         )}
                         {needsVendor(order) && (

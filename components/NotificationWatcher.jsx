@@ -2,7 +2,7 @@
 import { useEffect, useRef } from 'react';
 import { collection, query, orderBy, limit, onSnapshot, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { ORDER_STATUS, STATUS_LABELS, effectiveStatus, needsRider } from '@/lib/orderStatus';
+import { ORDER_STATUS, STATUS_LABELS, assignmentState, effectiveStatus, needsRider } from '@/lib/orderStatus';
 import { computeAttention } from '@/lib/attention';
 import { setCounts, pushAlert } from '@/lib/alertStore';
 
@@ -102,8 +102,9 @@ export default function NotificationWatcher() {
     // Orders: new / ready-without-rider / rider progress / cancelled, + counts.
     let ordersReady = false;
     const alerted = new Set();
-    const known = new Map(); // order id → "status|rider|vendor" as last seen
-    const signature = o => `${effectiveStatus(o)}|${o.riderId || ''}|${o.vendorId || ''}`;
+    const known = new Map(); // order id → what it looked like when last seen
+    const look = o => ({ status: effectiveStatus(o), rider: o.riderId || '', vendor: o.vendorId || '', answer: assignmentState(o) });
+    const signature = o => JSON.stringify(look(o));
     const ordersQ = query(collection(db, 'orders'), orderBy('createdAt', 'desc'), limit(300));
     const unsubOrders = onSnapshot(ordersQ, snap => {
       const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -118,15 +119,16 @@ export default function NotificationWatcher() {
       snap.docChanges().forEach(change => {
         const o = change.doc.data();
         const id = change.doc.id;
-        const before = known.get(id);
+        const prevSig = known.get(id);
+        const before = prevSig ? JSON.parse(prevSig) : null;
         if (change.type === 'removed') { known.delete(id); return; }
         const now = signature(o);
         known.set(id, now);
         if (change.doc.metadata.hasPendingWrites) return; // our own optimistic write
         // Only housekeeping fields changed (server "notifiedEvents", settlement stamp …): not news.
-        if (change.type === 'modified' && before === now) return;
+        if (change.type === 'modified' && prevSig === now) return;
         const status = effectiveStatus(o);
-        const key = `${id}:${change.type}:${status}:${o.riderId || ''}`;
+        const key = `${id}:${change.type}:${status}:${o.riderId || ''}:${assignmentState(o)}:${(o.riderRejections || []).length}`;
         if (alerted.has(key)) return;
 
         if (change.type === 'added') {
@@ -139,7 +141,18 @@ export default function NotificationWatcher() {
         if (change.type !== 'modified') return;
         const actor = lastActor(o);
 
-        if (needsRider(o)) {
+        // The rider turned the order down: it is back with the admin
+        if (before && before.rider && !o.riderId && actor === 'rider') {
+          alerted.add(key);
+          const last = (Array.isArray(o.riderRejections) ? o.riderRejections : []).at(-1) || {};
+          show('🛵 Rider rejected — assign another',
+            `${orderNo(o, id)}: ${last.riderName || 'the rider'} said no${last.reason ? ` (${last.reason})` : ''}`,
+            { urgent: true, tag: key, url: `/orders/${id}` });
+        } else if (before && before.answer === 'pending' && assignmentState(o) === 'accepted' && before.status === status) {
+          // accepted without moving the order on (moving it on is announced as progress instead)
+          alerted.add(key);
+          show('✅ Rider accepted', `${orderNo(o, id)}${o.riderName ? ` · ${o.riderName}` : ''}`, { tag: key, url: `/orders/${id}` });
+        } else if (needsRider(o)) {
           alerted.add(key);
           show('📦 Ready for pickup — assign a rider',
             `${orderNo(o, id)}${o.vendorName ? ` from ${o.vendorName}` : ''} is ready and has no rider`,
